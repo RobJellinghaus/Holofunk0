@@ -1,0 +1,45 @@
+<div class="wikidoc">
+<p><strong>A sound playground of your very own.</strong><br>
+<br>
+Holofunk is an improvisational way to make music with your voice and your body, almost like a symphony that you both create and conduct.</p>
+<p>Holofunk integrates Kinect body tracking for gesturing, a Wiimote for clicking and picking, the BASS audio library for audio processing, an ASIO sound driver for low-latency recording, the
+<a href="http://sugar-bytes.de">Turnado</a> VST plugin for ridiculously powerful sound effects, and&nbsp;SharpDX for a fast and attractive interface.</p>
+<p><a href="http://robjsoftware.org/2011/09/21/holofunk-lives/">Go here to see&nbsp;an early version&nbsp;in action.</a></p>
+<p><strong>Current Features</strong></p>
+<ul>
+<li>Low-latency&nbsp;pass-through of microphone audio. </li><li>Squeeze Wiimote trigger to start a loop; release it to let the loop start running.
+</li><li>Loops appear as colored circles, that throb according to the loop's volume. </li><li>Loops are quantized to fit the current tempo, so everything syncs up. </li><li>Press the Wiimote minus button and wave over sounds to mute them and turn them grey.
+</li><li>Press the plus button and wave over sounds to unmute and re-colorize them. </li><li>Press minus over a muted loop to delete it altogether. </li><li>Two-player support -- jam with a friend! </li><li>Two-monitor support -- show the audience an audience-eye view (on a projector or other monitor), while you watch a mirrored view of yourself on your laptop.
+</li><li>SharpDX integration -- Windows 8-friendly access to the full DirectX 11 API (which I do criminally little with, yet!).
+</li><li>VST support with <a href="http://sugar-bytes.de">Turnado</a> integration and gestural effects control -- stupendous audio processing power, the surface of which I've again barely scratched.
+</li><li>Hold Home to pop up a menu with various commands (wipe all sounds, switch players, etc.).
+</li></ul>
+<p><strong>Background and Contact Info</strong></p>
+<p>For more background on Holofunk's inspirations and ambitions, see this blog post:
+<a href="http://robjsoftware.org/2011/07/12/first-steps-on-the-road-to-holofunkiness/">
+http://robjsoftware.org/2011/07/12/first-steps-on-the-road-to-holofunkiness/</a>.</p>
+<p>If you are interested in future developments, please consider joining the <a href="https://www.facebook.com/#!/pages/Holofunk/210213785666232">
+Holofunk facebook group</a>.</p>
+<p><a href="http://holofunk.codeplex.com/SourceControl/BrowseLatest">Click here to browse the latest source.</a>&nbsp;</p>
+<p>This project is licensed under the quite permissive Microsoft Public License, and I am very much seeking collaborators!&nbsp; The potential of this project is pretty near limitless, and it is just getting started.&nbsp;</p>
+<p>In fact, it is so much just getting started that it currently uses various non-commercial components that I am not able to redistribute in product form -- specifically, the BASS audio library, which I am currently using&nbsp;under noncommercial terms, and
+ the Turnado VST plugin, which I paid for.&nbsp; So you may download this, play with it, and hack on it, but not sell it (without violating the license terms of some components)</p>
+<p>Not daunted?&nbsp; Check out <a href="http://holofunk.codeplex.com/wikipage?title=Setup%20and%20Playing&version=1">
+the Setup and Playing instructions</a>.&nbsp; I have yet to put up binaries.</p>
+<p>I am a Microsoft employee, but this project was done purely on my own time with no Microsoft corporate resources.</p>
+<p>For a meta perspective, consider that Holofunk is a <a href="http://holofunk.codeplex.com/wikipage?title=Synesthizer">
+synesthizer</a>.</p>
+<p><strong>What's Next</strong></p>
+<p>Oh, basically an infinite number of things.&nbsp; Some obvious features that should be added:</p>
+<ul>
+<li>Ditching the Wiimote, and using Kinect gestures for pure hands-free looping.&nbsp; Kinect 2 looks like it supports enough hand poses to make this feasible; I will be trying it the second I can get my hands on a Kinect 2 beta SDK for Windows, HINT HINT GUYS
+ ;-) </li><li>Ditching the USB audio interface and using the Kinect mike array.&nbsp; The latency issues here are serious, but it could be a fun mode for fooling around, though latency is surprisingly critical even for beginning users....
+</li><li>Multiple skins because not everyone likes hippy dippy rainbows :-D </li><li>Converting the loops to use an FFT-driven frequency display. </li><li>Integrating the Kinect video stream so you see yourself, not just your shadow.
+</li><li>Gesture support -- warp your sounds with your body. </li><li>Collapsing sounds together, or splitting them apart. </li><li>Side-chaining and integrated compression and EQ throughout.&nbsp; (I know very little about this, another massive learning area....)
+</li><li>Multiple interfaces for time distortion/scratching, MIDI sequencing, full-body capture, keyboard support, foot position support for guitar players....
+</li><li>Implement reusable sound buffers -- at this point, the amount of sound you could get into a single performance would be nigh limitless.
+</li><li>Importing multiple sound sources, integrating other instruments, integrating MIDI, bringing in multiple visualizers.
+</li><li>AND THEN SOME. </li></ul>
+<p>Now you can see why I'd love your help!</p>
+<p>&nbsp;</p>
+</div><div class="ClearBoth"></div>

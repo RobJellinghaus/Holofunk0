@@ -1,0 +1,3298 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1033{\fonttbl{\f0\fswiss\fcharset0 Arial;}{\f1\fswiss Arial;}{\f2\froman\fcharset0 Times New Roman;}{\f3\fnil\fprq1\fcharset0 Lucida Console;}{\f4\fnil Consolas;}{\f5\fnil Lucida Console;}{\f6\fnil\fcharset0 Lucida Console;}{\f7\fnil\fcharset0 Calibri;}{\f8\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green0\blue255;\red43\green145\blue175;\red0\green255\blue0;\red255\green255\blue0;\red163\green21\blue21;\red0\green128\blue0;}
+{\*\generator Riched20 6.2.9200}\viewkind4\uc1 
+\pard\b\f0\fs48 Holofunk notes: \fs20\par
+\b0\par
+\b\fs36 DONE:\b0\fs20\par
+\par
+CHOP UP THE PLAYERSTATE - \b DONE\b0\par
+\par
+\f1 -\tab Concurrent modification of m_loopies list\par
+\f0\tab\tab hmm, really a lot of places touch it....\par
+\tab\tab but only one place modifies it off the game thread.  ok then.\f1\par
+\f0\tab\tab\b DONE\b0\par
+\par
+- how to measure text?\par
+\tab - ta-da!  SpriteFont.MeasureString!  easy mcpeasy\par
+\tab - ok so let's do MenuItemNode\par
+\tab - actually let's just do it in TextNode and add an origin???\par
+\tab - \b DONE\b0\par
+\par
+\b HOW TO DO THIS THING?\b0\par
+answer: \par
+\par
+- implement TextSpriteNode - \b DONE\b0\par
+\par
+\par
+\par
+OK, so spent the evening chopping everything up into a merrily optimistic bunch of pieces.\par
+\b NOW: how to address the polymorphic state issue.\b0\par
+What we \i want\i0  is some statically typed, almost monadic means of wrapping states.\par
+So entering parameter mode means you have changed the type of TActionState to PlayerParameterState.\par
+Can always get from that to the outer states in a strongly typed way, that's no problem.\par
+\par
+Can even see how you could have State<TEvent, TActionState, TParentActionState> or something similar.\par
+\par
+\b But how does the transition logic work?\par
+\b0 You don't know the type of the state that should be passed in!\par
+\par
+Well, we can live with the dynamic typing internally to the state machine, as long as we don't have to deal with it in any of our state machine (or other!) code.\par
+\par
+So, fine.  We constrain TActionState to be a class.\par
+Then we can do an "as TActionState" in the infrastructure.\par
+\par
+ENTRANCE AND EXIT STATE TRANSFORMATION FUNCTIONS.\par
+So we do really have TActionState, TParentActionState.\par
+The funcs are TActionState => TParentActionState (exit conversion)\par
+and TParentActionState => TActionState (entry conversion).\par
+In the common case where the two are the same, then it's just the ID func.\par
+Since they are both : class, we can check the conversions internally and die immediately in the state machine implementation.\par
+\par
+OK, got the state machine piece done.  But it doesn't build yet.\par
+Still, HUGE STEP FORWARDS since managed to solve the scoped state AND scoped scene graph issues in a way that's perfectly statically typed (from state machine implementor's perspective) and perfectly layered with the hierarchical state machine.  VERY GOOD WORK, BRAVO, PIP PIP.\par
+\par
+OK here let\rquote s see.\par
+So to do what Dane wants, I really do need mixdown.\par
+But let\rquote s assume that is OK.\par
+What is wanted is:\par
+HOME mode is the usual palette interface.\par
+Pushing A in home mode does what?  Maybe just lets you drag around.\par
+Up takes you to Effect Space.  Your side of the screen is mapped to a four-starfish space.  Hold 1 to set where the mike goes; dropping 1 sets the mike to that combo of effects.  Recording starts recording wherever you pull, and effects follow you while you drag around with the trigger.  A lets you pick up and drag existing sounds.\par
+Effect Space is a swing-up rectangle that comes up behind the existing loop field  When you leave it, you get mixdown of all loops you moved \f1\endash  and hence effected \endash  while it was up.\par
+(If no mixdown then it just works for knob setting.)\par
+In any mode, dragging leaves a beautiful comet trail.  Eventually.\par
+In the  corners of effect space, you can use the d-pad to scroll through presets.\par
+Home takes ypu back out of effect space.\par
+Meanwhile, back in palette mode, pushing Down takes you into starfish mode.  That lets you drag all the arms directly.  Can use this to create presets?  Or just go into starfish mode in the corners?  (Is it corners or mid-sides in effect space?)\par
+Are we undoable?  Of course we are.  Home, in palette space, lets you undo one level of effect at a time.  A \ldblquote level\rdblquote  is a set of parameters applied before a mixdown.  We save the original track data. \par
+\f0 Really need GC once we have undo\'85.\f1\par
+What about keyboard space?  In keyboard space, there is no mike hand, no remote hand.  There are regions mapped to keys, and pressing a key takes you into record mode, with the loopie position centered in that region.  There is one region selected at a time, with shift-select for \par
+\par
+multiples.  Minus mutes all selected regions, plus unmutes, space toggles.  No effect support at all yet.\par
+\par
+OK so what do we have?\par
+Let\rquote s assume we break it down by state.\par
+Palette state:\par
+\tab Loop position does not affect loop sound\par
+\tab Recording new loops uses current mike effect\par
+\tab Pushing 1 pops starfish for mike\par
+\tab Pushing A pops starfish for selected loops (1 toggles mike)\par
+\tab Minus, plus work as expected\par
+\tab Touched loopies are updated based on cursor positioning\par
+Starfish state:   PARAMETERIZED STATE\par
+\tab Entered with some input actions invoked with the modified parameters (and initial too)\par
+\tab Starfish on player\rquote s side\par
+\tab Setting starfish legs affects [touched loopies and/or mike parameters, when invoked from palette state]\par
+\tab Home backs out to the PARENT STATE\par
+\f0\tab\par
+\b No, we don't need parent states.\b0   We just factor out the logic into the appropriate state class and we treat it as entered and exited.  Kind of hacky, kind of global, but good enough for the time being.\par
+\f1\par
+\par
+\par
+OK so effect space?\par
+In effect space:\par
+\tab Position determines selection just as in palette space.\par
+\tab 1 positions mike icon and sets mike parameters.\par
+\tab A grabs selected loops (must be direct touch, no area selection \par
+\par
+in effect space? Does that work?) and immediately starts applying effects.  Dropping leaves them with those parameters.\par
+D-pad at effect vertices lets you swap through presets.  NO.  D-pad lets you swap ALL VERTICES AT ONCE.  You get four completely different effect spaces at a touch.  Swapping effect spaces only takes effect once you pick something up.  If it is too jarring, we interpolate???  Or do we converge by averaging?  That\rquote s just an interpolation technique, let\rquote s try it.  And yes it sets all the effect knobs.  HELL YES.\par
+Minus and plus still mute and unmute.  (Or toggle???)\par
+\par
+OK, that really sounds like a whole different state altogether, but with some common logic for selection update.  But it definitely has the Touched Loopies concept.\par
+\f0 Maybe you can hold down A to drag a selection box!!!  That would be so sweet\'85 then dragging those loopies would compress them together (enforcing a min distance with repulsion, but a max diameter of the whole group, in cool sproingy fashion).\f1\par
+OK.  So it looks like we can still do all this reasonably easily with the existing hacky bag of state.  Maybe at least carve it up a bit.\par
+Still have MicrophoneParameters, TouchedLoopies, all the rest of it.\par
+But for something like keyboard state, you really want state-specific state.  How?  \par
+Well, maybe you do have states be able to access their parents?  No.  You have an extensible state bag mechanism?  Property bags, essentially?  Yeah, I think I like that.\par
+So there is the Loop property bag with the loopies and their touched-ness and muted-ness and positions, there is the Microphone property bag with the mike parameters, there is the Keyboard property bag with the current keyboard regions, etc.  Do states declare which bags they get?  Sure they do.  Or nah, it\rquote s enough that they just pull out the bags they need from the Big Bag.\par
+\par
+OK so:\par
+Palette state uses the Loop and Microphone bags.\par
+Same with Effect state.\par
+Starfish state doesn\rquote t know WHAT bags it uses.\par
+Keyboard state uses the Loop and Keyboard bags.\par
+\par
+If no Kinect is detected it goes right to Keyboard state.\par
+If no Wiimotes are detected but there is a Kinect, it goes to Hand Pose state, where a grip action starts recording and a release starts looping and maybe the other hand\rquote s position does something, I dunno.\par
+\par
+\f0 - build Menu structure, hierarchically - \b DONE\b0\par
+- math to generate N-sided polygon with sides of length TextureRadius\par
+\tab - solve for equilateral triangle with known point angle and far side length\par
+\tab\par
+point of triangle is A, bottom corners are B, C\par
+N = number of sides\par
+R = TextureRadius\par
+\par
+length(AB) = length(AC)\line angle(B) = angle(C)\par
+angle(A) = 2pi / N = D\par
+length(BC) = R\par
+\par
+convert to right trangle with midpoint M halfway between B & C\par
+length(BM) = R / 2\par
+angle(M) = 90 degrees\par
+\par
+length(AB) = (1 / sin(D)) * (R / 2) and done!\par
+does it work for N = 2?\par
+arcsin(180deg) = 0.  so no, doesn't work.  fine, special-case 1 and 2.\par
+\par
+oops, arcsin wasn't what I thought.  want reciprocal of sin.  what about zero???  uck, \b FIX THAT LOGIC\b0 , no need\par
+\par
+- MenuItemNode hit radius is slightly bigger than drawn\par
+\tab - can drag sloppily from one into next without leaving either\par
+- define MenuState\par
+\tab - tracks current TextSpriteNodes\par
+\tab - handles tracking which one the user is over\par
+\tab\par
+\par
+HOME MENU (held for one beat):\par
+- "delete all my sounds" (or maybe just all created by that player....)\par
+- "switch players" \par
+- "switch hands"\par
+- TEST IT\par
+- \b DONE\b0\par
+\par
+STARFISH:\par
+- Implement slider (closest slider, etc., including label)\par
+\tab - implement rotation mirroring to get this right \par
+- Implement all nine sliders, including highlighting from default position out to wherever sslider is\par
+\tab  - \b DONE\b0\par
+- Connect up to parameter sets via state machine\par
+-\tab - \b DONE\b0\par
+\par
+\par
+- TEST IT - \b DONE!!!!!\b0\par
+\par
+\f1\par
+\f0 EFFECT SPACE:\par
+- Implement axes (similar to but modified from parameter space)\par
+\tab - use the old "pop effect radius up around the sound" idea - \b DONE\b0\par
+\tab - advantages: \par
+\tab\tab automatically works for little ones\par
+\tab\tab finesses the issue of "clicking on an existing sound causes it to immediately be effected"\par
+\tab - NO DON'T DO IT!\par
+\tab\tab - model should be "when you let go, that's where you are"\par
+\tab\tab - avoids weird interpolation shit that makes no sense\par
+\tab\tab - nice predictable model\par
+\tab\tab - go to starfish if you want to return to normalcy, or "undo" menu item\par
+\tab\tab - \b DONE\par
+\b0\par
+- No mixdown (yet) - \b DONE ;-)\b0\par
+\par
+So each drag is instead just a parameter morph of the selected parameters in that direction.  Averaging the values between the two axes where you're going?  Sure why not.  \b DONE\b0\par
+\par
+\par
+- TEST IT.  \b GAH, blew 90 minutes on fucking bizarre audio brokenness, and finally got effect space working after 60 minutes.  WOULD HAVE SO MUCH MORE DONE!  WAAAAA ok I'm better now\par
+\b0\par
+\par
+fix pan effect in effect space -- almost working but not centered properly at origin, not going down in the right direction.  But my God the up and down directions are AWESOME - \b DONE!!!\b0\par
+\par
+- \b BUY REAL SPEAKERS AND AMP - DONE\b0\par
+\par
+\par
+- SUPPORT ARBITRARY RESOLUTIONS\par
+\tab - SCALING FACTOR RELATIVE TO 640x480\par
+\tab - \b DONE!!!  FINALLY!!!!!!  huuuuuuge improvement\b0\par
+\par
+- 2 BUTTON TO SWITCH PLAYERS!!!!! - \b DONE!!!\b0\par
+\par
+- Menu to switch audience view - \b DONE!!!\par
+\b0\par
+\par
+\f1 -\f0  \f1 Truncate to four beats not eight\f0  - \b DONE\b0\f1\par
+\f0\par
+- fix popup menu text scaling being off-center - \b DONE\b0\par
+- fix popup menu text color... wait what's wrong with it? \b NOTHING\b0\par
+\par
+- DELETE PlayerState.Side :-) - \b DONE\b0\par
+\par
+STARFISH POLISHING:\par
+- unmuting overwrites volume parameter setting, should restore it - \b DONE\par
+\b0\par
+- sliders should always have upright text - \b DONE\b0\par
+- sliders should have label right-justified - \b DONE\b0\par
+\par
+- Track which tracks are whose, so you really do delete only your own - \b DONE\b0\par
+- Or, add separate menu item - \b DONE\b0\par
+- Add menu item for switching players - \b DONE\b0\par
+\par
+- Clamp effect space / param space to edges of screen (so you don't get them offscreen) - \b DONE\b0\par
+- Shrink them both slightly - \b DONE\b0\par
+\par
+- Add mute/unmute in effect space - \b HAH NOT NEEDED IF EFFECT DRAG IS MODELESS!!!\b0\par
+\par
+\f1 -\f0  \f1 Pad with space immediately, don\rquote t trap in record mode\par
+\f0  \tab - \b NO BAD WRONG, LEAVE IT AS IS\b0\par
+\par
+- Menu to wipe all effects\par
+\tab - \b DONE for mike\tab\par
+\tab - \b0 add for touched loopies, only when there are any\b\par
+\par
+\b0 - Specific effect space menu??? \b NO!\b0\par
+\tab - "Undo" to reverse last drag?\par
+\tab - Hold for a beat to get popup menu in effect space; click to get out?\par
+\tab - \b HAH! MOOT!\b0\par
+\par
+- Set up XPS 12 with Holofunk, see if HDMI works, do we have HDMI extension cable??? - \b DONE!!!\b0\par
+\par
+- Go to Radio Shack tomorrow, get MORE phono to 1/8" adapters, look for HDMI extension cable and HDMI-to-VGA adapter - \b DONE\b0\par
+\par
+- convert to uniform [0, 1] graphic space???\par
+\tab - advantage: \par
+\tab\tab - get rid of all viewport size multiplications except at very end\par
+\tab\tab - real "world space", not working in screen space in app code\par
+\tab - disadvantages: \par
+\tab\tab - more goddamned refactoring\par
+\tab\tab - less intuitive coordinates\par
+- DECISION: FUCK IT FOR NOW, time to write FEATURES!  but definitely later\par
+ \tab - but do try to write agnostic of viewport size, keep it in mind\par
+- NO DON'T DO UNIFORM GRAPHIC SPACE\par
+\tab - set viewport based on size of Kinect depth stream\par
+\tab - scale viewport, preserving aspect ratio, to size of window\par
+\tab\tab - not by stretching bitmap, but by scaling all rendering\par
+\tab - so the viewport size changes depending on Kinect 1 vs Kinect 2\par
+\tab\tab - therefore need one scale factor for textures vs viewport\par
+\tab - and the window size can be whatever\par
+\tab\tab - therefore need another scale factor for viewport size to window size\par
+\tab - \b DONE!!!\b0\par
+\par
+- where do we apply this viewport-to-window scaling?\par
+\tab - need to apply it in rendering\par
+\tab - uniform transformation transformation?\par
+\tab - actually maybe it IS worth virtualizing the drawing API and putting this under it\par
+\tab - rotations are invariant under uniform scaling (hence have to preserve aspect ratio in viewport-to-window)\par
+\tab - \b DONE\b0\par
+\par
+\par
+\par
+\par
+\b\fs36\par
+KEEP:\b0\fs20\par
+\par
+- On the M-Audio interface:\par
+\tab - left bottom signal pot: maxed\par
+\tab - input 1: both buttons OUT (Inst / No Pad)\par
+\tab - Stereo button OUT\line\tab - Mix: all the way to the right (PB)\line\tab - Output (below Mix): minned\par
+\tab - A/B: OUT\par
+\tab - Level: fairly high\par
+- In Windows:\line\tab - Master level: maxed\par
+\tab - System sounds: maxed\par
+\tab - Line 1/2 (M-Audo FastTrack Pro): MINNED\par
+\tab\tab - this prevents hearing the mic while recording it\par
+\par
+INSTALL 6.0.7 M-AUDIO FASTTRACKPRO DRIVERS:\par
+http://avid.force.com/pkb/articles/en_US/Download/Fast-Track-Pro-Drivers\par
+\par
+\par
+\i Install ASIO4ALL 2.11 Beta1 driver\i0\par
+\b critical ASIO4ALL settings:\par
+\b0 buffer size: \b 192\b0\par
+hardware buffer: \b UNCHECKED (!)\b0\par
+Latency compensation: 0 samples in/out\par
+Kernel buffers: 2\par
+Always Resample 44.1kHz <-> 48kHz: \b CHECKED (!? new change?)\par
+\par
+\b0\i Install Fast Track Pro 6.0.7 drivers\b\i0\par
+In M-Audio Fast Track Pro control panel:\par
+\b0 - select 48Khz\par
+\par
+\b In Windows Audio control panel: right-click speaker icon\par
+\b0\i DO NOT make ASIO devices be the default audio devices\i0\par
+Playback Devices, Line 1/2 Properties, Advanced, 2 channel / 24 bit / 48KHz quality\par
+\tab Check both boxes\par
+Recording Devices, Line 1/2 Properties, Advanced, 2 channel / 24 bit / 48KHz quality\par
+\tab Check both boxes\par
+\par
+IF GET HORRIBLE STATIC THAT BLOWS YOUR HEAD OFF: reboot immediately\par
+IF GET SCRATCHY GARBLE (especially if breakpointing in asioprocs): reboot immediately\par
+\par
+\par
+\b GREAT!!!\par
+\par
+TO ACTUALLY CONNECT THE DARN WIIMOTE:\par
+- \b0 open Holofunky\par
+- open Devices and Printers\par
+- remove Wiimote\par
+- Add a Device\par
+- hold down buttons 1 and 2 on Wiimote; bottom lights should start blinking\par
+- QUICKLY click through the wizard\par
+- Close the wizard\par
+- Run Holofunky\par
+- Bottom lights should stop blinking, first light should light steadily, and Bluetooth adapter should START blinking.\par
+\par
+If the Wiimote lights stop blinking before you get to the last step, you lost the race and have to do it over :-D  But try doing it over this way:  push the buttons and just run Holofunky.  If that doesn't work, do it ALL over again.\par
+\par
+\b DO NOT FORGET THAT ONCE PANNING GOES LIVE, THE CABLE TO THE PA SYSTEM MUST REVERSE THE CHANNELS!  \b0 If the video is flipped horizontally, the audience audio must be as well!\par
+\par
+\b REMEMBER EARBUD OR OTHER HEADPHONES WHENEVER GIGGING LIVE!\par
+\b0 look into wireless solution???  or just wing it....\par
+\par
+Motorola S9 wireless Bluetooth headphones {{\field{\*\fldinst{HYPERLINK http://www.bing.com/shopping/motorola-s9/p/72D7400D0035733B5008?q=wireless+headphones+musician&lpf=0&lpfs_fs20409=1343805438&lpfs_fs21099=1343659863&lpfs_fs24104=1622765647&lpq=wireless%2bheadphones%2bmusician&FORM=EGCA&lppc=16 }}{\fldrslt{http://www.bing.com/shopping/motorola-s9/p/72D7400D0035733B5008?q=wireless+headphones+musician&lpf=0&lpfs_fs20409=1343805438&lpfs_fs21099=1343659863&lpfs_fs24104=1622765647&lpq=wireless%2bheadphones%2bmusician&FORM=EGCA&lppc=16\ul0\cf0}}}}\f0\fs20\par
+Motorola DC800 bluetooth stereo adapter {{\field{\*\fldinst{HYPERLINK http://www.bing.com/shopping/motorola-dc800-bluetooth-home-stereo-adapter/p/1BC247D614AEDFE31F8B?q=wireless+headphones+musician&lpfs_fs20409=1343805438&lpp=3&lppc=16&lpq=wireless%2bheadphones%2bmusician&FORM=EN }}{\fldrslt{http://www.bing.com/shopping/motorola-dc800-bluetooth-home-stereo-adapter/p/1BC247D614AEDFE31F8B?q=wireless+headphones+musician&lpfs_fs20409=1343805438&lpp=3&lppc=16&lpq=wireless%2bheadphones%2bmusician&FORM=EN\ul0\cf0}}}}\f0\fs20\par
+\par
+Idea: run the audio out of the M-Audio into a three-way splitter -- camera (for recording), PA system, and wireless Bluetooth stereo adapter.  The latter drives the headsets.  How low will the latency be?  Only one way to find out....\par
+\b\par
+\b0 OM GOM GOM GOMGOGM GOMDG OGMGOMGOGM\line TURRRHNNAAAADDOOOOO\line\par
+FreezeVerb > FreezeVerb\par
+Granulizer > PitchDrop\par
+Guitar Amp > Boost\par
+Guitar Amp > NiceDynamics\par
+Levelizer > Kompressor\par
+Pan Looper > SizeIT\par
+Pan Looper > Zapper\par
+Pitch Delay > Stutter Delay\par
+Pitch Looper > BitchLooper\par
+Pitch Looper > Pitch Looper\par
+Reactor > AcidBath\par
+Reactor > BreakBeater\par
+Reactor > StrangeTone\par
+Reverb > Medium Hall\par
+Reverb > Reverb\par
+RingModulator > RingModulator\par
+RingModulator > Wobbler\par
+Slicearranger > Bassgun\par
+SliceArranger > PushMe\par
+Slicearranger > SliceWarz\par
+Slicearranger > ThreeFee\par
+Spectralizer > Backgroundbreak\par
+Spectralizer > RainingMallets\par
+Tonalizer > Airplane\par
+Vinylizer > FastStops\par
+Vinylizer > Vinylizer\par
+Vocodizer > Minorchords\par
+Vocodizer > Sequence\par
+\b\par
+COOLEST BEARDYSHIT:\par
+- Into The Abyss\par
+- Nice Pitch Shifter\par
+- That's Disgusting\par
+- whosaiddubstepwasdead\par
+\b0\par
+\par
+UNHOSING THE LATENCY:\par
+- turn off Holofunk\par
+- quit VS\par
+- turn off amp\par
+- unplug M-Audio\par
+- wait a moment\par
+- replug M-Audio\par
+- turn on amp\par
+- fire up Holofunk\par
+- observe no audio time passing\par
+- restart Holofunk\par
+- HOPEFULLY, back in business\par
+\par
+\par
+\b\fs36 TO DO:\par
+\b0\fs20\par
+\par
+- Pop up text labels on all four sides OF THE HAND CURSOR?  yes YES YES\par
+\tab - determined by the PLAYER MODEL effect preset.\par
+\par
+- How much time to make the damn presets?  Don't even worry about it at first, make them be just individual effects.  \par
+\tab - add one preset per D-pad direction\par
+\tab - show the presets around your hand as you switch, then fade them out\par
+\par
+where is current preset?  not in effect space... needs to be in player model.  that's ok\par
+\par
+\b - \b0 Tune (reduce somewhat) size of pie menu\par
+\tab - much easier to hit now that using "closest" algorithm properly\par
+\par
+- Add pie chart recording thing?\par
+\tab - YES, new beat monitor\par
+\tab - Hollow quarter circles show quantized duration, filled quarter circles show beats\par
+\tab\tab - INCREASE FILL ALPHA UNTIL FULL\par
+\tab\tab - nicely get around having to tessellate a rotating circle....\par
+\par
+\par
+\par
+\par
+\par
+FOR NEXT HOLOFUNK JAM / MARK WYNNE / MATT TOWERS:\par
+\par
+- Add multiple screen areas?\par
+\tab - divide into twelve?\par
+\tab - mouse over the intersections?\par
+\tab - plus button becomes toggle, not unmute?\par
+\tab\tab - no, more nuanced: is toggle directly, but when dragged, \par
+\par
+\par
+\i should mute and unmute be queued for next measure???\par
+\i0\tab not tonight they shouldn't....\par
+\par
+\par
+- simplify effect space model to be "born dragging" (more similar to popup model)\par
+\par
+\par
+- ADD A COMPRESSOR ON ?ALL STREAMS?\par
+\tab - BEFORE turnado\par
+\par
+\par
+\par
+\par
+\par
+ \par
+\par
+\par
+\par
+\par
+- FIX MUTING - can you starfish a muted loop?  what happens, what is the MEANING of this?  gah, big semantic hole.\par
+\par
+\par
+- Prevent offscreen tracks, clamp to within some boundary of edge\par
+\par
+\par
+- Find proper 120BPM Turnado clocking (did I have the saved preset files in the right place?)\par
+- Make 80BPM clocking as well\par
+- Switch tempo by changeable menu item that is only available with no tracks\par
+\tab - ditch the old way\par
+\par
+\par
+\par
+\f1 -\f0  \f1 Pick up duration of loopie you are over\f0  when recording\f1\par
+\f0\par
+\par
+\par
+\par
+- D-pad\par
+\tab - lets you switch between whole sets of four presets!!!\par
+\tab - basic wet/dry mix???\par
+\tab - hold down D-pad to define one particular preset?\par
+\tab\tab - how to do it?  with overlaid starfish?\par
+\tab\tab - no... can set effect preset FROM starfish OVER TO effect space\par
+\par
+\par
+OK, if we had mixdown then we would have each drag be its own recorded mixdown in realtime so we loop the identical fucking thing.  BUT WE DON'T\par
+\par
+\par
+THEN, THEN THEN THEN, hook in the damn D-pad in effects mode, holding it makes the starfish pop up????\par
+\tab - thumbnail starfish version?\par
+\tab - Holding it makes the starfish pop up so there's no mistake.\par
+\par
+Program selection done with multilevel popup menu, but only once we have mixdown (so we don't have N layers of VSTs and so we get sample-accurate recording).  Hmm, that means that the effect duration has to be a multiple of the loop duration or get truncated?  Innnteresting.  \par
+\par
+Maybe need to try out actual dynamic envelopes and see... tricky question... but NOT RELEVANT NOW, JUST TWIST THE KNOBBY-O'S.\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+TIME SPACE:\par
+- Look into driving push stream from push stream\par
+- Look into data mapping\par
+- Play around with lines and setting control points\par
+- Drag out a rectangle to create a series of sawteeth\par
+- Animated playback\par
+\par
+- TEST IT\par
+\par
+SLIDE SPACE:\par
+- directory of images\par
+- 2 button toggles into slide space\par
+- brief press of 2 (<2 beats) goes forward, longer hold of 2 goes back\par
+- home returns of course\par
+\par
+- TEST IT\par
+- generalize to random textures / images????\par
+\tab - VISUALIZER space?!?!?!  control the (audience?) view more finely?\par
+\par
+\par
+- eight wedges in palette space\par
+- select both wedges when over border between them, etc\par
+- switch plus to be "toggle mute" rather than "unmute" (except in direct contact?)\par
+\par
+\par
+ADD THREAD ASSERTIONS THROUGHOUT?!\par
+\par
+\par
+- update to newest BASS versions (mainly for multithreaded BassASIO support in 1.3!  halve the CPU for two players!)\par
+\par
+\par
+\par
+\f1 Let\rquote s brainstorm some other spaces.\par
+\par
+CONDUCTOR space:  while A is down, your hand positions control th volum of each half of your space.  Slightly different than effect space since you are turning the knobs on a spatial region.  Actually it is like a two-handed version of the rectangular parameter space!  But really it is two sliders, one per hand, just for simplicity.  Still you could imagine having the d-pad scroll through presets on each hand independently???  \par
+\f0\tab\b CROSSFADE GESTURE\b0  maybe?\f1\par
+\par
+\f0 MIDIGRID space: yep, like that web toy thing or like a million sequencer pad things.\par
+\tab D-pad takes you to different instrument layouts.\par
+\par
+\f1\par
+OK that is enough for tonight.  namaste\par
+\par
+\f0\par
+\par
+OK, so we have\par
+\par
+\tab\tab EffectSpace\par
+Midigrid\tab\tab Palette\tab\tab Starfish\f1\par
+\f0\tab\tab TimeSpace\par
+\par
+\par
+Palette:\par
+\tab Trigger -> PaletteRecording (substate of Recording)\par
+\tab Minus, plus -> usual meanings\par
+\tab A -> (for now) grab selected loopies and drag them around \tab\par
+\tab Up -> go into Effect space\par
+\par
+Effect:\par
+\tab Update: bring up the background (animate it out)\par
+\tab\par
+\par
+AHA, can reuse states already!  Can have \b same\b0  state transitioned to in \b multiple\b0  ways????\par
+Hmmm... not quite.  Do we need a way to clone a state?  Yes, let's say we do.  Should be easy.\par
+\par
+\par
+Recording:\par
+\tab Update -> reposition loopie to remote hand, maybe pick up duration of closest\par
+\tab\tab In effect mode: also apply interpolated effect at current location\par
+\tab\tab (what if you go outside the effect box on your side???  while dragging????\par
+\tab\tab answer: effect gets clamped but you can put the damn thing where you like)\par
+\par
+\par
+Visual flash:\par
+- trail for dragged loopies (in any mode)\par
+- ease-in, ease-out for animating transition into effect space / starfish space\par
+\par
+\par
+- redo beatmeter\par
+\tab should show squares for entire measures\par
+\tab four measures per line max\par
+\tab squares should have... what?  dots inside?  yes let's say so\par
+\tab 2x2 internal dot grid flashes LT, RT, LB, RB\par
+\tab entire hollow square should flare (use thicker overlaid square)\par
+\par
+\par
+- quickly test excessively lengthily timed ASIO callback (spike on one and see what happens)\par
+\par
+\par
+\par
+\par
+- DOCUMENT AND BLOG ABOUT THE CONCURRENCY STYLE\par
+\par
+\par
+EVENTUALLY: minimize-jerk transitions (how to get that right analytically???)\par
+\tab short version: velocity along the [0, 1] interval is (vMax * Math.Abs(0.5 - interval))\par
+\tab that way it's fastest halfway in between and slows reasonably at the edges\par
+\tab but how does it ever get STARTED???\par
+\tab fuck it, at first just have a simpler transition function\par
+\f1\par
+\par
+\f0\par
+scratching:\par
+- generalized mapping of "realtime (X) to loop time (Y)"\par
+- draw any structure with exactly one Y value per X coordinate\par
+- normal play is 45 degree angle up and to the right; reverse is same rotated 90 degrees\par
+- scratching is sine wave, stuttering is sawtooth\par
+\par
+\par
+SYNTHESIZER VST:\par
+wooeeeeee!\par
+minigame interface like that web toy that has the grid of notes, X is beat, Y is pitch\par
+could be AWESOME\par
+\par
+\par
+\par
+\par
+- boost resolution to dual 1024x768\par
+\par
+\par
+And using wiimote-hand-relative parameter boxing will help a lot with the "initial positioning" \par
+problem.\par
+\par
+\par
+\par
+- letting go many beats ahead of the end causes it to "get stuck" for a long time \par
+\tab - fix by quantizing to 4 beats only?!  YES DO IT.  no try 2 first\par
+\par
+\par
+- make loopie in hand inherit duration of closest existing loopie\par
+\tab - don't mess with drawing just one beat meter (yet)\par
+\par
+- make there be eight screen boundaries\par
+- make multiple regions selectable if on border(s) between them\par
+\par
+\par
+- pushing crosspad sets effect dimensions, initially:\par
+\par
+\par
+- menu system\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+- try 32-bit Perforce on laptop\par
+\par
+\par
+\par
+- start researching other maker faires / etc.\par
+- come up with other venues for performing with this thing\par
+\par
+\par
+- EXTEND THE ANTS TRIAL\par
+- profile in release mode\par
+- find out why any Gen2 GCs are happening\par
+\par
+\par
+\par
+- research ASIO mixed mode assembly\par
+- implement unsynchronized ring buffer communication layer\par
+- implement ASIO callback on C++ side\par
+- get it working\par
+\par
+\par
+- implement stream reclamation\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+what about pixel shaders for doing the depth buffer -> texture conversion?!!\par
+LATER SIR\par
+and with TIMINGS!\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+LATER:\par
+code coverage\par
+\par
+\par
+\par
+\par
+\par
+\par
+Gamasutra(?) latency article:\par
+http://www.gamasutra.com/view/feature/1942/programming_responsiveness.php\par
+Make sure my architecture follows known best practices here.\par
+\par
+\par
+\par
+ \par
+\par
+\par
+\par
+\par
+\par
+\par
+\par
+\b\fs52 OLD:\fs20\par
+\b0\par
+\par
+SOFTWARE:\par
+\par
+3DUI for basic graphics / input: http://www.bespokesoftware.org/wordpress/?page_id=50\par
+\tab - needs XNA 3.1: {{\field{\*\fldinst{HYPERLINK http://creators.xna.com/en-US/downloads }}{\fldrslt{http://creators.xna.com/en-US/downloads\ul0\cf0}}}}\f0\fs20\par
+\par
+Bespoke OSC for C# client side: http://www.bespokesoftware.org/wordpress/?page_id=69\par
+\par
+LiveOSC for Python server side: http://livecontrol.q3f.org/ableton-liveapi/liveosc/\par
+\tab - needs Python: http://www.python.org/download/releases/2.6.5/\par
+\par
+\par
+\par
+- LiveOSC seems like most direct route into Ableton Live, no need to fuck with Max.  (sigh, wasted $300, oh well)\par
+\par
+\par
+\par
+Next:\par
+\par
+- Install Python.\par
+- Install LiveOSC.\par
+- See LiveOSC inside Ableton.\par
+\par
+- Install Bespoke OSC.\par
+- Read up on it.\par
+- Integrate into HolofunkPrototype.\par
+\par
+- Fucking try it out!!!\par
+\par
+- See if can get 360 controller input into BEUI.\par
+\par
+- Try to make a goddamn button.  Two-way looper toggling with accurate feedback.\par
+\par
+- Try to track the tempo in Live.  Basic transport control.\par
+\par
+- Determine how much goddamn allocation this feeb's code is doing.\par
+\par
+\par
+\par
+\par
+DONEDATE 2011/01/03:\par
+\par
+- revived EchoFunk, more or less -- dunno why original project biffed, but re-hacking the latest HelloXNAFramework seemed to work\par
+\par
+- get everything checked into Perforce\par
+- aw shit, why doesn't breakpointing work!?  :-P\par
+\tab - because I had dragged stale bin/obj dirs over when moving.\par
+\tab - rebuilding cleanly fixed it :-)\par
+\par
+- ensure mike support still works in the thing\par
+- it does.  recorded working config in notes.\par
+\par
+ok, well underway!!!\par
+- ControlFrame is a bit wonky\par
+- IDrawable converts towards world coordinates (given local transforms from root down).\par
+- ITouchable converts towards local coordinates (given world coordinates).\par
+\par
+Yay, got the beginnings of something!!!!!\par
+\par
+Finish it up and get multitrack working!!!!!!!!\par
+\par
+\par
+aaah, trust your instincts :-)\par
+check out reactive now.\par
+\par
+ok looks like rx is the shiz alright.\par
+there is this XPF thing but it looks semi-stale.\par
+and it looks like Rx really wants to be up to date.\par
+So just write a tiny little display tree thing in Rx.\par
+Should be much nicer.\par
+\par
+IObservable<IObservable<IDrawable>> for the drawing?!\par
+\par
+What does declarative time-based animation look like with this?\par
+IObservable<HoloTime> is the update stream, right?\par
+\par
+And yet I want a PULL model for drawing, don't I?\par
+...kind of seems like it....\par
+\par
+Really want reactive to drive the sound AND the graphics.\par
+\par
+\par
+\par
+well, it's cool and all.  so yeah, let's do it.\par
+BUT, let's FIRST get the current code working just to have a leg to stand on.\par
+\par
+\par
+Definitely need to learn about scene graphs a bit eh what?\par
+- Wonder if reactive would really help here.\par
+\par
+Coordinate<TPosition, TSpace>?!\par
+\tab Coordinate<Vector2, WorldSpace>\par
+\tab convert to <Vector2, LocalSpace>\par
+\tab ack, too distracting!\par
+\par
+\par
+\tab - got the linkies\par
+\par
+- what orientation does this app WANT to use?\par
+\tab - start with tuning for vertical\par
+\par
+brainstormy:\par
+\par
+IObservable<IObservable<IDrawable>> for the rendering.\par
+This ticks on the drawing clock.\par
+\par
+Behavior<HoloTime> for the current time???\par
+Yes yes yes.  That is availble to whoever wants it.\par
+\par
+No, it can't be IDrawable since that is not side-effectable.\par
+And it can't be pure functional since the allocation will kill me.\par
+\par
+Perhaps it can be TSprite?\par
+\tab - reuse/pool instances?\par
+\tab - entirely prompt?\par
+\par
+So what would happen would be:\par
+- there's an IObservable<Unit> for the draw tick\par
+- you want to write this as:\par
+\par
+IObservable<Primitive> \par
+\tab - pushes out all the primitives.\par
+\par
+what about time???  you just get the current time from the BehaviorSubject?\par
+GAH.  what I WANT is to say that the drawing primitive is a function of the last time.\par
+but the update time is decoupled from the drawing time.\par
+WHY do I care about the update time?\par
+Let's say it's JUST a graphics app for the moment.\par
+\par
+Then in that case it's an IObservable<HoloTime>.\par
+\par
+Well, that's all very well, but really the problem is that we want to be producing an IObservable<SceneGraph>.  But that's way too much garbage to literally do.\par
+\par
+Perhaps learn a bit more about ITBs?  Or would that be too risky....\par
+\par
+\par
+...sigh, that was one big ol' detour into the arrghatron.\par
+\par
+OK, I have it kind of compiling now but it is all kind of dismembered.\par
+But this is exactly what this WHOLE EXERCISE IS FOR....\par
+\par
+- Efficient drawing requires NOT using some kind of bogus object pooling thing.\par
+\tab - HAS to be a visitor/sink-method paradigm.\par
+\tab - So, let's say that each drawable maintains a view matrix.\par
+\tab\tab - Relative to parent only?\par
+\tab - Stack of view matrices.  Allows local changes as you visit.\par
+\tab\tab - Standard scene graph; do some quickie research in available 3D gfx texts.\par
+\par
+- Sink has methods for drawing textures (only, at the moment).\par
+- Visit propagates the current view matrix (stack?).\par
+\tab - Grouping nodes push and modify a new matrix, then pop.\par
+\tab - Right, right, this is all standard stuff.\par
+\par
+- INPUT handling ALSO goes via visit!\par
+\tab - transforming the world coordinates to local at each step!\par
+\tab - (xen codeplex project not gonna work because no input handling)\par
+\par
+- Overall animation paradigm:\par
+\tab - composable in scene graph\par
+\tab\i - HoloTime is passed down in visit\par
+\i0\tab - can be used to tweak colors, etc.\par
+\par
+Yes yes, this is all fine, and MUCH more efficient than Rx.  Again, don't use list enumeration when what you want are prompt tree traversals with no data motion!\par
+\par
+Alright.  So we may still be able to use Rx for all the plumbing of events at the app level...?  yes very possible, but it will just be bottoming out at particular subscribees (loopies, etc.).\par
+\par
+And the update timer can certainly be a plain IObservable<HoloTime>.\par
+\par
+(Would be nice if the sound effects could be handled with Rx....)\par
+\par
+- but actually let's try doing it all WITHOUT Rx at first, then refactoring it.\par
+\par
+- So in that case what we really want is for the Loop update to manually and imperatively track its playing end time, and restart the loop right then.\par
+\par
+\par
+...no, we can use reactive for things dealing with \i time.\i0\par
+but we'll have a prompt sink-based scene graph for \i space.\i0\par
+...no, I don't like that idea much either.  QUICK WRITE TO ROY\par
+\par
+\par
+ok done.  So let's draw some pictures.  A prompt tree:  the scene graph.  Traversed on every Draw call; pass down the current time.  Do math based on the current time, update parameters, etc.  Would be nice to control all the time-varying parameters with reactive...?  But then how does that state get persisted for the draw stage?  Aah it shouldn't even matter, should it?\par
+\par
+Yes, it DOES matter.  OK.  VISUAL things should get done in the draw loop.  \par
+Reactive animation?  Are people actually using Rx for graphics?  Sure they are, obviously.  Let's look at that guy's example again.\par
+\par
+ALright, the separation is *this*:\par
+- Reactive drives all time-based state change.\par
+- Simple reactive formulas produce time-based derived events that affect state.\par
+- The state ultimately is expressed as observables consumed by observers that snapshot it into the scene graph.\par
+- So the scene graph is a static portrayal of the state as of the last instant.\par
+\par
+IObservable<Beat> derives from IObservable<GameTime>.  NICE\par
+\par
+- Input.  What about input?\par
+- Need to transform it down the scene graph, no?\par
+\tab - Well, it's really a spatial query.\par
+\tab - All good scene graphs support hit testing.\par
+\par
+Can we write the input-driven transitions easily with Rx?\par
+\par
+What is the model for sound?  You want to express the \i individual\i0  sound-on / sound-off / record / etc. transitions as observable events.\par
+\par
+So let's say that you have an IObservable<TouchLocation>.\par
+The scene graph observes this and translates it to buttons.\par
+Each button has its own IObservable<TouchLocationState>.\par
+It doesn't NEED to know what time it is.  \par
+The Loopie observes the button's touches.\par
+\par
+How does state switching work in Rx?\par
+It's a simple select, isn't it?\par
+But on what?  Do you get to retain YOUR current state?  How?\par
+\par
+OK fuck it, let's make the Loopies into subjects.  I will learn better someday but not yet.\par
+\par
+\b So what IS our desired interaction?\par
+\b0\par
+- Touch a button.\par
+- IObservable<TouchLocation> fires to scene graph observer.\par
+- Scene graph hit tests its way down to a specific button.\par
+- Fires the button's IObservable<TouchLocationState>.\par
+- Button fires IObservable<ButtonPress>.\par
+- Loopie monitors ButtonPress as a subject.\par
+\tab - Subject has state machine.  Good ol' prompt imperative state machine.\par
+\par
+\par
+THE STATE MACHINE:\par
+...is beautiful!\par
+\par
+\par
+\par
+OK, so we are going to combine three major abstractions:\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li720 A prompt tree-based 2D scene graph.\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li1080 Each node has a world-to-local transform.\par
+{\pntext\f8\'B7\tab}The entire state is fully static and promptly renderable.\par
+{\pntext\f8\'B7\tab}Conceptually the Draw method DOES NOT PASS THE TIME.\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li1440 All Draw state is promptly available.\par
+{\pntext\f8\'B7\tab}Computation per se does NOT happen in scene graph traversal.\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li720 A hierarchical state machine.\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li1080 entry and exit actions\par
+{\pntext\f8\'B7\tab}nested states\par
+{\pntext\f8\'B7\tab}transitions crossing boundaries and routing properly\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li720 A reactive event flow for time and input.\par
+
+\pard{\pntext\f8\'B7\tab}{\*\pn\pnlvlblt\pnf8\pnindent0{\pntxtb\'B7}}\fi-360\li1080 Beats derived from time.\par
+{\pntext\f8\'B7\tab}Update method fires time updates.\par
+{\pntext\f8\'B7\tab}Also fires input updates.\par
+{\pntext\f8\'B7\tab}Input routed promptly through scene graph.\par
+{\pntext\f8\'B7\tab}Controls observe an IObservable<Touch>.\par
+{\pntext\f8\'B7\tab}They publish an IObservable<ButtonPress>.\par
+
+\pard\par
+Then:\par
+- Loopies are state machines.\par
+- They expose controls.\par
+- The game wires the loopie controls together with parent scene graph nodes.\par
+- The game sets up the basic reactive plumbing.\par
+- The loopie state machines are driven by observing the controls.\par
+- The loop has its OWN state machine driven by the passage of time!  (TBD)\par
+- The control images are driven by the loopie state machine.\par
+- A general message bus works for global messages, with source filtering to avoid loops.\par
+\par
+\b FUCKING FANTASTIC!!!!!\b0\par
+\par
+AND AND AND, it SHOULD be... should it???... it SHOULD be completely drivable from the event log!!!!!\par
+\par
+should be able to record the whole event log and play it back deterministically.\par
+along with the sounds recorded.\par
+you can record the whole session AND JUMP IN ANYTIME?!?!?!\par
+... yes, with appropriate broadcast event firewalling.....\par
+... hmm, not quite, it's like trying to play a player piano :-D\par
+\tab - would have to abstract it at the level of the... what?  button press events?\par
+\tab - no, they're not button press events, they're COMMANDS.\par
+\tab - and they get assigned to buttons by OBSERVABLES.\par
+\tab - and they don't glitch because it all happens between renders.\par
+\par
+holy crap that's awesome?!\par
+\par
+wow, it really IS awesome!!!!!!!\par
+\par
+it all hangs together beautifully.  and NOW it makes sense and I can build it.  and I know it will extend marvelously.\par
+\par
+FUCK YEAH\par
+\par
+ok enough for tonight!\par
+\par
+- good perf data, but RUH ROH:\par
+
+\pard\sb100\sa100\f2\fs24 Applications should not exceed 90 MB of memory usage unless Windows Phone has more than 256 MB of physical RAM\par
+
+\pard\f0\fs20\par
+ok, getting hung up on details of polymorphism in the state machine actions.\par
+what exactly does this observer code look like?\par
+EACH TRANSITION *IS* AN OBSERVER?!\par
+and they come and go as you enter and leave?\par
+\par
+wow this seems like it would create A LOT of garbage.  so don't want that.\par
+DO want some mapping from observer to transition invocation.\par
+but WHAT exactly?  \par
+well DUH it's an observation of some kind of event namespace that is meaningful to the state machine.\par
+So specifically it is TEvent and the state machine implements IObserver<TEvent>.\par
+AND the state machine IS stateful... the static initialization is where the subclass customization comes in.  But it ONLY contains the current state and the current TActionState.\par
+\par
+ok I think I like that.\par
+\par
+but WHERE THE FUCK IS IOBSERVER<T>?!?!?!?!  something fubar here\par
+... gah, System.Observable has to be added separately.  trivial.\par
+\par
+\par
+\par
+OK, have to time out now. \par
+- finish StateMachine constructor\par
+\tab - should take list of states, initial state, and list of transitions\par
+\tab - transitions are Tuple<TState, TEvent, TState>\par
+\tab - transitions are taken when OnNext(TEvent) matches a tag\par
+\par
+\par
+DONEDATE 2011/03/08:\par
+\par
+aah fuck.  TEvent as written is essentially stateless.\par
+... why?  In fact it could trivially contain a sender reference, and standard IEvent probably does!\par
+... so maybe use that after all.\par
+\par
+ok sleep\par
+\par
+\par
+\par
+Erik Meijer suggestions:\par
+- have a stateful SelectMany that keeps the state\par
+- have a join that observes its own output\par
+\par
+\b NEXT TIME:\par
+- finish StateMachineInstance - DONE!\par
+- write tests and tinky test harness - DONE!\b0\par
+\par
+ok, I have the classes stubbed out :-D\par
+BUT what is the relationship between these classes and animation???\par
+\par
+Let's not EVEN worry about it yet.  Let's treat animation as solely the result of feeding updates to local transforms via some extrinsic mechanism.  The scene graph is \i purely prompt and instantaneous\i0  -- it has \i no notion of time whatsoever.\i0\par
+\par
+STICK TO THAT INVARIANT.  \par
+\par
+OK fine, but then we DO need to figure out how we get tweening, e.g. let's suppose they rotate their phone and we want to tween the transition to the new layout... we conceptually want the scene hierarchy to handle the transformation in some reasonable way, but what???  In other words, on the one hand we don't want the scene hierarchy to understand time or animation (for sanity's and clarity's sake), but on the other hand we want to be able to animate the hierarchy sensibly (for lack of duplication's sake).  TBD what we do about this.  For now, we support only one layout anyway....\par
+\par
+\par
+GAH, so many distractions -- what about coordinate space as a (hidden) type parameter???\par
+- analogous to units in some sense since getting it wrong is equally problematic.\par
+- but encoding coordinate space as a hierarchy = dependent typing...?!  glah\par
+- FORGET IT!\par
+\par
+\b - lift test classes out into real locations (retain testability) - DONE\b0\par
+\par
+\b - start building scene graph\b0\par
+\par
+\par
+WorldBoundingBox issues:\par
+- may want to be lazy in updating this.  in fact going down exactly that path.\par
+\par
+MUCH FOOFARAW about exactly how parents transform their children.\par
+converging now on design where the parent keeps a per-child Transform explicitly.\par
+this avoids child state that is managed by the parent (always confusing),\par
+without requiring an explicit TransformNode concept that looks like a weird kind of single-child-only AParentSceneNode.  In practice any worthwhile parent node is going to want to move its children in a way it controls, so let's set it up to do just that.\par
+\par
+Child nodes then need a way to get their individual local-to-world transforms, without some kind of hideous "m_childList.IndexOf(this)" O(N) nightmare.  So when you attach them to a parent, have the parent give them back a Func<Matrix> they can use to get their own xform.  Nice functional encapsulation!\par
+\par
+\b NEXT TIME:\par
+\b0\par
+\b - finish the scene graph implementation\par
+\par
+\b0 Hmm.  So in thinking about the use case of a tray node laying out animating buttons, it seems the button may want to present a different LocalBoundingBox to its parent than it actually uses for rendering.  If you want to have buttons pulsing gently within a tray, without affecting their peer buttons, then the LocalBoundingBox each button exposes to the parent needs to be stable.  Therefore the button needs TWO local transforms -- one that it exposes to the parent, and one that it applies locally when rendering.  OK, fine.\par
+\par
+But do ALL nodes need this?  Possibly, possibly.  OK, let's make it universal.\par
+\b\par
+\par
+- get a-testin'\b0\par
+\par
+\par
+\par
+\b - immutable representation of entire performance\par
+\tab - can transform any interval into sound buffer\par
+\tab - supporting efficient recording into live performance\par
+\tab - efficient transclusion!\par
+\tab - all transitions driven off of samples\par
+\tab - tracks all existing for whole performance\par
+\par
+\b0 some kind of visibility metaphor?\par
+- and audio and video both derived!\par
+- what about grouping?  do we want to capture full all-time animation?\par
+\tab - yes, yes we do!  would like to have everything!\par
+\tab - it's necessary anyway for getting an envelope out of a gesture!\par
+\tab - wow, that's bizarre.\par
+\par
+so let's view the performance and the microphone both as input vectors that exist for the whole performance, continuously and UNCONDITIONALLY recorded!\par
+\par
+what do we CALL this thing???  track?  tracks have subtracks?\par
+rather like a temporal scene graph!  Open-ended interval concept!\par
+ok let's just call it a track for now.\par
+\par
+DataTrack is a source of samples.  Parameterized by sample type?!  hmm interesting.\par
+Hand position generates DataTrack<Vector3>; sound channel generates DataTrack<float>.\par
+(how is stereo represented in ASIO?)\par
+\par
+DataTrack can be relayed right to Channel.  Relayed HOW?  Well, it could just be smashed in there if all you have is effectively mono.  Or, it could be pulled to a StereoTrack that takes a DataTrack<SoundSample> (defaults to float?!) and a DataTrack<float> for the L-R position, and emits two DataTrack<SoundSample>s.  FUCK YES.\par
+\par
+Multiple outputs, how to do it with IObservable?\par
+And the issue here is that this is not really simply IObservable because it is all time correlated and has to move in lockstep.\par
+So think of it more like a reactive computation.  Pull-driven, perhaps even!\par
+Track<TValue>'s fundamental API:\par
+\tab - Buffer<TValue> Compute(Interval interval)\par
+\par
+Interval: Time start, Time end\par
+Time: int Ticks, bool -Infinity, bool +Infinity\par
+\tab - or just use float inf?\par
+\tab - yes, let's try that.\par
+\par
+hmm, is it Buffer<TValue> or isn't it?\par
+\tab - pull is nicer in this case because it enables traversal from the sink.\par
+\tab - but how do you pass up the context you need to render the audio into?\par
+\tab - and how do you avoid redundant computation?  (e.g. stereo channel with even balance)\par
+\par
+general problem with an observable network....\par
+\par
+DataTracks can be sources AND sinks!\line Implement intermediate caches that way!\par
+\par
+\par
+And if you have a DataTrack whose capacity is limited then you have intermediate buffers without unbounded space requirements?!\par
+\par
+No, probably better to make it an explicit TemporaryTrack or something, to clearly indicate that it is ephemeral from the overall model's point of view.  But the point is that it can be injected into the graph and later elided without affecting the rendered sound.  The goal here is to make it trivial to describe the transformation pipeline in an immutable way, allowing the description itself to be shared piecewise, wihch provides all sorts of nice cloning behavior.\par
+\par
+So let's call it TemporaryTrack.  \par
+\par
+Track<TValue> = function from Interval to Buffer<TValue>.\par
+SampleTrack<TValue> = source of samples.  \par
+TemporaryTrack<TValue> = intermediate bounded buffer, source and sink.  \par
+StereoTrack<TSound> = function from Track<TSound>, Track<float> to Track<TSound>, Track<TSound>.\par
+SineWaveTrack : Track<NegOneToPosOne> = simple sine wave generator.\par
+LoopTrack<TValue> = looper of some Interval of an underlying Track.\par
+\par
+Can trivially create\par
+\tab SineWaveTrack -> TemporaryTrack -> LoopTrack\par
+and get a one-second sine wave loop for the cost of a single second's buffer and zero runtime computational overhead after the first second.\par
+\par
+Track<TValue> implements Compute(Interval interval, ref Buffer<TValue> outBuffer)\par
+where outBuffer is what gets written into.\par
+But what about multiple outputs?  e.g. StereoTrack?\par
+Compute1, Compute2?\par
+DoubleTrack<TValue>?\par
+MultiTrack<TValue> implements Compute(Interval interval, int trackIndex, ref Buffer<TValue> outBuffer>)?\par
+\par
+Yes, I think I LIKE IT.\par
+\par
+So you always pull, and you use TemporaryTracks to achieve intermediate buffering.  BEAUTIFUL.\par
+\par
+Then you get a number of things for free:\par
+- full static description of the whole performance\par
+- full recording of the whole performance\par
+- easy composability of new Track types\par
+\par
+GOD IT'S LOVELY!\par
+\par
+Then a Loopie is what, exactly?\par
+- a user interface widget that supports modifying a set of Tracks.\par
+\par
+The spatial position of a Loopie is \i itself\i0  a Track<float>.\par
+Support SparseTrack<TValue> that just contains a set of discrete signal changes.\par
+\par
+Actually Signal is good too.  Signal or Track?  hmmmmm, very tricky.  I think Signal is more general, though, and more clearly connotes FRP.  So let's roll with it.\par
+\par
+Output is the ultimate sink, the thing that calls Compute on the upstream Signal(s).\par
+\par
+So a Loopie controls a couple of Signals:\par
+- the SparseSignal<Vector3> Position of the Loopie (need some good representation that handles dense sampling when desired... something like a SharedSignal that is a sparse Interval -> Signal mapping, where the Signal can be reassigned perhaps arbitrarily, or even computed?!)\par
+- the Signal graph that represents the constructed sounds of the Loopie\par
+\par
+How do we mutate that Signal graph given our immutable representation?  Well, we add new Signals that have a start interval that excludes everything that already happened!  Very much a temporal database problem -- we leave history alone, but add new "layers" that are simply "transparent" everywhere prior to now.  "Deleting" sounds is done by setting them to invisible from now on, which also allows them to be revived.  "Audibility caching" supports efficient update in the presence of possibly many inaudible Signals.  \b BEAUTIFUL.\b0\par
+\par
+OK, that's enough brilliance for tonight :-D\par
+\par
+\par
+NO IT ISN'T!  So this whole design is working, because it highlighted the issue of how does the continuously live microphone work?  How does the SampledSignal from the microphone become the StereoOutput?  Answer:  there is always some effect in place on the microphone itself, and in fact \i the microphone itself is a Loopie.\i0   It exists in space and a user "start/end record" causes it to bud a new LoopSignal adjacent in space.  Transforming the Microphone results in LoopSignals that are equally transformed.  FUCKING AWESOME.\par
+\par
+Meanwhile on the render level, operations such as pitch control, volume control, balance, etc. are all visually represented on top of some kind of underlying frequency view.  Bidirectional hourglass mixer view.  But that's monochrome -- what did Arlie want to use color for again?  Need to ask him.....\par
+\par
+\par
+\par
+\b - build IObservable<LoopieButtonType> for the buttons\par
+\b0\par
+\par
+\b OVERALL PLAN:\par
+- build mini scene graph\par
+- build toy app that reacts to clicks by changing buttons\par
+\par
+- build Loop that represents sound\par
+- build Recorder that buffers microphone and produces Loops\par
+- build Sound Recorder\par
+\par
+- build proper Loop app\par
+\b0\par
+- \b add beats (background metronome, sound only)\b0\par
+\b - add visual beat feedback \par
+\b0\par
+- \b modify Recorder to be beat-aware\par
+- add beat cues to Recorder buttons\par
+\par
+\b0\par
+\par
+RECORDER:\par
+- single object keeping the whole stream.\par
+- it spits out buffers that get picked up.\par
+- not only buffers but buffer slices.\par
+\par
+\par
+I want something containing all the Loops.\par
+Arrangement?!  Yeah why not.\par
+\par
+So the Arrangement contains loops.\par
+\tab Loops have duration in number of measures.\par
+\tab Do loops have an offset from beat zero?!  Yes they must.\par
+\par
+How do we precisely know when to start and stop?\par
+If you start and end exactly on the beat, then you am happy.\par
+But you never can.  So if you start just BEFORE the beat, then the time offset\par
+would be a bit negative; after, a bit positive.  And if you go just a little long but then let up (say, within 1/2 a beat), that tail gets truncated where it overlaps.\par
+\par
+What if you do an odd number of beats?  All kinds of modes possible; let's say at first it's multiples of two, and minimum of one.\par
+\par
+\par
+The Arrangement also contains effects.\par
+Some kind of separate thread for effects?\par
+How does realtime playback work?  Can you play back while you're recording?  How?  What about realtime effects?\par
+\par
+\par
+\par
+MINI EXPERIMENTS:\par
+- realtime effects (measure latency!)\par
+- garbage consumption to GC count\par
+- duration and frequency of GCs\par
+\par
+\par
+You need to be able to handle clock skew.\par
+At any given moment you may need to service a buffer end event.\par
+When you get one, do you know the time???\par
+\par
+\par
+Things currently pondering:\par
+- interaction of buffer end events, update events, and general time management\par
+- recording while simultaneously playing back (with effects?!)\par
+\tab - end-to-end recording->playback latency\par
+\par
+\par
+Basically need some kind of picture of what's happening on a per-loop basis.  If your clock skips, you have to get back on track ASAP.  Can use realtime to resync, so you may pop but you don't skip.\par
+\par
+SUBMIT DATA IN 100 MS CHUNKS\par
+STAY TWO BUFFERS AHEAD\par
+\par
+wonder how much smaller we can chop it?\par
+\line DynamicSoundEffectInstance seems perfectly groovy.\par
+yes it indeed is, you can submit chunks of buffers, it's perfect.\par
+\par
+So the Recorder produces a stream of BufferSlices.\par
+The Recorder can be configured to feed into a Loop.\par
+The Loop absorbs the BufferSlices internally.\par
+\par
+Can't play absolutely in sync -- the recording buffer has to be at least 100ms long.  But can you get incremental data out of it?!  Racing against the recorder?!?!?  Glark, that seems crazy to do.  Besides, you have to copy data from it....\par
+\par
+Want my own stream class that exposes the underlying BufferSlices.  BufferStream, natch.\par
+Then we should have sub-Streams because there is one true big one for the Recorder, and the sub-streams slice it up!!!\par
+Then loops hold substreams and manage interaction with a DynamicSoundEffectInstance.\par
+... or do they?  \par
+\par
+THE ARRANGEMENT CONSISTS OF THE SUBSTREAM COLLECTION.\par
+It is static.\par
+The Game (sigh, copout) is responsible for creating whatever it is that keeps the substreams playing.\par
+And just what IS that?!\par
+\par
+Well, here are the state transitions we need to consider:\par
+\par
+- Loading an arrangement and starting playback of the entire thing.\par
+- Adding a new loop that is being recorded.\par
+- Transitioning a recording loop to playing.\par
+- Muting an individual loop.\par
+\par
+\par
+But it's not just muting, it's arbitrary parameter manipulation.  Which raises the meta-question:  when are you adjusting a parameter permanently (e.g. fading out a sound progressively over multiple loops), and when are you recording a \i parameter loop\i0  (which may or may not have the same duration as the loop itself)?????\par
+\par
+How do you select whether to record parameter changes?\par
+\par
+On the phone, I think what you do is swipe to pick the effect.\par
+\tab Then the phone has an overlay in action.\par
+\tab MULTITOUCH to record!!!  Some kind of area at the bottom or wherever, or lower-left/lower-right red circular REC buttons.  So you pick your effect, scrub like crazy with right thumb and pinch with left thumb, and Bob's your uncle, you have a parameter effect.\par
+\par
+Parameter effects have to get applied on the same 100Hz clock.  (and recorded at that tempo, too!)\par
+\par
+(what about filtering / time-lag?  what is average update clock jitter?  enh, don't worry so fuckin' much already)\par
+\par
+All THAT really DOES want Rx in place, just to avoid callback hell.\par
+\par
+\par
+So let's say there is the Observable Pipeline.\par
+IObservable<HoloTime> Update \{ get; \}\par
+\par
+(HoloTime is since the beginning of the app.)\par
+\par
+IObservable<BeatFraction> Update.Select(time => time mod beat_duration);\par
+\par
+IObservable<BufferEnd> applied to the TrackPlayer.\par
+\tab Player is active object coordinating the event pipelines around that Track.\par
+\par
+Player has assignable IObservable properties for each key parameter.\par
+Live input maps the central touch position to some quantitative IObservable space.\par
+Rx magic then maps that to a normalized coordinate system, and then to whatever parameter is desired.\par
+This can directly drive the TrackPlayer's parameters in realtime.  It can also feed into a BufferStream via a BufferParameterObserver.  Then that BufferStream can become part of the Arrangement, indexed against that parameter, and an observer is set up on \i that\i0  which handles parameter update.\par
+\par
+So the Arrangement contains Tracks, and each Track contains an audio BufferStream and one or more parameter values-or-BufferStreams.\par
+\par
+State changes in the contents of the Arrangement trigger Rx event pipeline manipulation.\par
+But during actual playing, and even during some recording scenarios, Rx is pumping everything and no other relevant states are changing.\par
+\par
+OK I THINK I LIKES IT V. MUCHESTEREST\par
+\par
+So the Arrangement is PURE DATA all the way down (including all Tracks, modulo recording into them), and we have behavioral objects on top, TrackPlayer, Recorder, Loopie.\par
+\par
+ALRIGHTY THEN!!!  I can handles thats!\par
+\par
+So let's see.  16000 samples/sec x 2 bytes / sample = 32K / sec.  1M / 32K = 32 seconds per megabyte.  90 megabytes x 32 seconds = 2880 seconds.  2880 seconds / 60 = 44.5 minutes.  OK, that makes sense.\par
+\par
+But if we have the sub-BufferStreams keep their own buffers, and if we drop them when we record over them etc., then we should be able to recycle them appropriately.  Should have IDisposable on the BufferStreams....\par
+\par
+So we can do plenty with this!!!  Could have ten one-minute loops and only burn a quarter of the memory, and it won't be nearly that much in practice.  Great!  (Even if actual phone has 3x the sample rate, we would still be fine....)\par
+\par
+FINE fine \b FINE!!!\b0\par
+\par
+\par
+\b NEXT: START HACKING, DUDE!  \b0 And find out whether buffer end events have timestamps, or GameTimes....\par
+\par
+So how much lag time do we want?  e.g. how do we manage the buffer queue-ahead?\par
+\par
+When playback starts:\par
+\tab - calculate the position of the current time in the current track\par
+\tab - queue up two buffers ahead\par
+\par
+Who fucking knows whether List.Clear() keeps the backing store?\par
+Have to write a stress test of it and see how many GCs happen :-P\par
+\par
+no one gives a shit about unit testing, fine, will just roll my own.\par
+\par
+- get tiny app onto phone?\par
+\tab - how does real phone deployment work?\par
+\tab - might as well try it out first :-)\par
+\par
+\par
+DONEDATE 2011/05/11:\par
+\par
+OK, let's collect all the surfing I did before, and download stuff as peers of Holofunk.\par
+\par
+WiiMoteLib:\par
+http://www.brianpeek.com/blog/pages/wiimotelib.aspx\par
+How-to article:\par
+http://channel9.msdn.com/coding4fun/articles/Managed-Library-for-Nintendos-Wiimote\par
+\par
+NAudio:\par
+http://naudio.codeplex.com/\par
+\par
+SkypeFX voice changer example NAudio app:\par
+{{\field{\*\fldinst{HYPERLINK http://skypefx.codeplex.com/ }}{\fldrslt{http://skypefx.codeplex.com/\ul0\cf0}}}}\f0\fs20\par
+\par
+Math.NET Numerics:\par
+http://numerics.mathdotnet.com/\par
+\par
+ASIO.NET:\par
+{{\field{\*\fldinst{HYPERLINK http://www.codeproject.com/KB/audio-video/Asio_Net.aspx }}{\fldrslt{http://www.codeproject.com/KB/audio-video/Asio_Net.aspx\ul0\cf0}}}}\f0\fs20\par
+\par
+ASIO SDK:\par
+{{\field{\*\fldinst{HYPERLINK http://www.steinberg.net/nc/en/company/developer/sdk_download_portal/asio_sdk.html }}{\fldrslt{http://www.steinberg.net/nc/en/company/developer/sdk_download_portal/asio_sdk.html\ul0\cf0}}}}\f0\fs20\par
+-- MUST HAVE 3RD PARTY DEVELOPER ACCOUNT!\par
+{{\field{\*\fldinst{HYPERLINK http://www.steinberg.net/en/company/developer.html }}{\fldrslt{http://www.steinberg.net/en/company/developer.html\ul0\cf0}}}}\f0\fs20  and READ WHAT IT FRICKIN' SAYS, DUUUUUH\par
+\par
+PD core link:\par
+http://crca.ucsd.edu/~msp/software.html\par
+\par
+Yvan Grabit ASIO SDK community page:\par
+http://ygrabit.steinberg.de/~ygrabit/public_html/index.html\par
+\par
+\par
+...Got everything pulled into Holofunky, a new Windows Game 4.0 project.  But why only x86???  Oh well, not really an issue for this project.\par
+\par
+...Reading ASIO SDK docs, or skimming at least.\par
+\par
+Build ASIO.NET test example in new standalone VS2010 project.\par
+Run ASIO.NET test example.\par
+\par
+Pull ASIO.NET library into mine.\par
+Get it building.\par
+\par
+ASIO4ALL:\par
+{{\field{\*\fldinst{HYPERLINK http://www.asio4all.com/ }}{\fldrslt{http://www.asio4all.com/\ul0\cf0}}}}\f0\fs20\par
+\par
+- install final VS2010 on home machine.\par
+\tab - how to get from laptop???\par
+\par
+- resolve frickin' COM error\par
+- try removing [STAApartment] (or whatever) in ASIO.NET test sample\par
+\tab - see if it breaks\par
+- try \i adding\i0  that to Holofunk\par
+\tab - see if IT breaks\par
+- FUCK ASIO.NET, BASS IS THE WIN.\par
+\par
+\par
+YAYYYYY actually got bassasio full duplex to work in the context of Holofunky!\par
+and with that, that's enough for tonight :-D\par
+\par
+ALRIGHTY THEN, got the previous StateMachine test revived.\par
+that is VERY NICE.  baselined.\par
+\par
+what first?\par
+\par
+without some kind of UI it'll be damn hard to make any progress.\par
+\par
+so let's figure that out.  what kind of UI can I do with mouse?\par
+\par
+- red blob in the middle\par
+- hold to get copy blob that records\par
+- release to let blob float free in its current direction until far enough\par
+\par
+ok fine.  so to make this happen, need scene graph booted up.\par
+and input state machine.\par
+\par
+2D is still fine though.\par
+make them fuckin' rectangles already!\par
+\par
+don't need tray at all.  but don't screw with it\par
+how much testing do I need???  100%!!!!!!  feh.  but can run code coverage? \par
+\par
+OK FINE LET'S GET THE BLOBS FLOATING AND CLICKING FIRST.\par
+\tab and spamming\par
+\par
+\par
+so the state machine for the recording blob is:\par
+\par
+- pulse gently (always)\par
+- mouse down: spawn new blob centered on mouse location, closer to viewpoint in Z-order\par
+\par
+state machine for the separate blobs are:\par
+\par
+- pulse with music\par
+  \tab - aaah, don't want to spend too much time on crappy mouse interface\par
+\par
+Wiimote interface:\par
+- trigger = record current gestures into selected\par
+- A = change selected\par
+- D-pad = effects on selected\par
+Mouse interface:\par
+- left button = record current gestures into selected / MAKE current gestures\par
+- right button = change selected\par
+\par
+aah, mouse one sucks.  don't sweat it, it's not THE POINT.\par
+anyway will be enough to record multi tracks and dick with beat matching.\par
+\par
+then can start going nuts:\par
+\tab - screen quadrants\par
+\tab - widgets in screen corners for group sound manipulation\par
+\tab - popup widget menu when right-clicking, for sound manipulation\par
+\par
+so hit testing needs to be pixel-accurate?  FUCK ME how is that gonna work?\par
+\tab - separate texture for hit testing?\par
+\tab - or just Z- sorted rectangles / circles?\par
+\tab - let's say it's the latter for starters, do it analytically; much simpler\par
+\par
+how do you draw a nice circle anyway?\par
+depends on how you want to do it, dunnit?\par
+should be able to make a nice geometry list and instance the fuck out of it....?\par
+solid / gouraud shading?\par
+or a fine bunch of concentric geometric circles, fine enough to change the color really nicely and quickly?\par
+have to experiment.\par
+\par
+- get Wiimote playing with XNA - \b DONE\par
+\par
+- \b0 get basic Kinect wrapper compiling - \b DONE\b0\par
+\par
+\tab - what does XNA use for color? - Color, duh!\par
+\par
+\tab - doesn't seem to be any 2D drawing API in XNA\par
+\tab\tab - line strips and lists uber alles\par
+\par
+\tab - System.Windows.Media.PixelFormats.Bgr32 seems not to be a native XNA format :-(\par
+\par
+\tab - but Microsoft.Xna.Framework.Graphics.SurfaceFormat.Color is fine\par
+\tab\tab - just have to swizzle differently when parsing the depth image.\par
+\par
+- create synthetic Color texture - \b DONE\b0\par
+\par
+- get Kinect wrapper to create RGB32 textures (stupidly) - \b DONE\b0\par
+\par
+- get Kinect depth image as XNA texture in scene graph - \b DONE\b0\par
+\par
+- get Kinect wrapper to create skeleton normalized to camera extent - \b DONE\b0\par
+\par
+- get Kinect skeleton as... WHAT??? in scene graph - \b DONE\b0\par
+\par
+- figure out how to represent UI-relevant skeleton state - \b DONE\b0\par
+\par
+- add colored triangle on one hand - \b DONE\b0\par
+\par
+- change to hollow alpha circles on \i each\i0  hand - \b DONE \b0 (have to begin/end per sprite!)\par
+\par
+- get some alpha-capable art program - \b DONE\b0\par
+\par
+\par
+\par
+DONEDATE 2011/08/18:\par
+\par
+GENERAL BASSASIO NOTES:\par
+\par
+- SimpleAsioFX sample shows ASIO callback doing its own level processing.\par
+\tab - Does not show capturing to a memory stream.\par
+\tab - Does seem to show pitch adjustment!  hmmm!\par
+\par
+- Float buffers are the way to go, they work with ASIO and with DX8 effects.\par
+\par
+BASS_ChannelGetData has some bizarre "length or flags" argument that seems to make it... trivial???... to get FFT representations of data!  WHOA....\par
+\par
+OK now the key question is, how exactly do I handle an ASIO recording stream buffering to memory???  \par
+- what are the rules for the ASIO callback?  where documented for crissakes?\par
+\tab - BASS_ASIO_ChannelEnable links procs to channels.\par
+\tab\tab - input and output channels have separate int numbering.\par
+\par
+how to create a buffered stream?\par
+\par
+DSP_Gain, DSP_StereoEnhancer, DSP_PeakLevelMeter... AWESOME!\par
+Waveform class... WTF???  \par
+\line VISUALS class!  VERY NICE.  looks like it can draw an instantaneous spectrum graph out of the box!  If only it could do it without allocation :-(  Oh well, at least it points the way and I can diddle my own FFT stuff relative to it.\par
+\par
+\par
+OK so the overall model is:\par
+- channels are identified by ChannelHandles\par
+- channels can be enabled (input/output), which attaches a callback\par
+- channels are often created on/from other channels\par
+\par
+DSP_BufferStream class looks useful for buffering the output of another stream, e.g. a mixer.\par
+\par
+Arrgh!  Why do none of the samples work? They all crash vshost.exe.\par
+\par
+OK, so BASS_SampleCreate looks to be for creating samples, and BASS_SampleSetData is for setting their data.  But this seems to require a contiguous byte array?!?!  How inna hell am I gonna\par
+manage that?!\par
+\par
+- can I play one sample after the other and stitch them together myself via progress callback?\par
+\tab - no, probably very unadvisable.\par
+\par
+\par
+But then there is BASS_StreamCreate et al., "create a user sample stream."  BASS_StreamPutData looks much more like what I want, used with BASS_StreamCreatePush.\par
+\par
+Don't forget about BASS_SetDevice weirdness!\par
+"DSPs can be applied to streams, but not samples."  So StreamCreatePush is it, with its handy example of stream copying via DSP proc!\par
+\par
+OK it's becoming clear:\par
+- ASIO input channel gets ASIOPROC that copies into memory chunks.  (see SimpleASIOFx for example)\par
+- Chunk manager tracks chunks vs. time.\par
+- Can create a push stream over some time interval by just pushing all the data into it and letting it play, joining it to the ASIO output channel.  (see SimpleAsioFX for example)\par
+\par
+So perhaps the original plan will work:\par
+- record into fixed size chunks\par
+- when a loopie is cut, create a stream, and put all the chunks into it\par
+- when doing effects, create subsequent streams and join them to output channel.\par
+- should be able to join as much as necessary to output channel\par
+\par
+ALRIGHTY THAT SOUNDS LIKE A PLAN\par
+\par
+\par
+Here's some code related to detecting the end of a track:\par
+\par
+\f3\fs16 track.TrackSync = \cf1 new\cf0  \cf2 SYNCPROC\cf0 (OnTrackSync);\par
+\cf2 BassMix\cf0 .BASS_Mixer_ChannelSetSync(track.Channel, \cf2 BASSSync\cf0 .BASS_SYNC_END, 0L, track.TrackSync, \cf1 new\cf0  \cf2 IntPtr\cf0 (0));\par
+\f0\fs20\par
+USE ONE SYNC PER CHANNEL: http://www.un4seen.com/forum/?topic=12875.msg89538;hl=looping;topicseen#msg89538\par
+\par
+USE VAM FLAG TO MAX HARDWARE RESOURCES: http://www.un4seen.com/forum/?topic=5937.msg40059;hl=samples;topicseen#msg40059\par
+\par
+- replace circle with microphone - \b DONE\b0\par
+\par
+- launch ASIO from within XNA app - \b DONE\b0\par
+\par
+- get samples working\par
+\tab - vshost.exe crash - fixed automatically by Program Compatibility Assistant (!!!)\par
+\tab - couldn't find bassasio.dll - copy into bin directory\par
+\tab - BadImageFormatException - change to x86 configuration\par
+\tab - wrong bassasio.dll version - revert to 1.0 from 1.1\par
+\tab - bass_fx.dll not found - download it\par
+\tab - terrible crackling noise - load ASIO4ALL offline settings, DISABLE 44.1KHz <-> 48KHz conversion\par
+\b\tab - AND IT SOUNDS PERFECT!!!!!\b0\par
+\tab - :-D\par
+\par
+- run GetLevel-like code  - \b DONE\b0\par
+\tab - basic ASIO sample has both of these, though without actually getting recorded data\par
+\par
+- render circle behind microphone, size proportionate to current level - \b DONE!!!!!!!!!!!\b0\par
+\par
+- state machine???\par
+\par
+\tab - default state: circle\par
+\tab - transition to held: \par
+\tab\tab circle -> red\par
+\tab\tab // show beam\par
+\tab\tab relocate sound\par
+\tab - held state: red circle with beam and sound inside\par
+\tab - transition to default: \par
+\tab\tab circle -> white\par
+\tab\tab // hide beam (color = transparent!?)\par
+\tab\tab relocate sound back to mike\par
+\tab - \b DONE!!!\b0\par
+\par
+\b NUMBERS TO LIVE BY:\par
+48Khz x 4 bytes/float x 2 channels = 384KB PER SECOND.\par
+\par
+300 seconds x 384KB/sec = 109MB.\par
+\par
+ok that is manageable.\b0\par
+\par
+- define Chunk, Sample, Track, SamplePool - \b DONE\b0\par
+\par
+- add Recorder\par
+\tab - allocate many MB of memory\par
+\tab - \b DONE\b0\par
+\tab\par
+- get recorded data by some means - \b DONE\b0\par
+\par
+- create Track when recording begins - \b DONE\b0\par
+- finish Track when recording ends, associate with Loopie - \b DONE\b0\par
+\par
+- TEST ALL THE ABOVE - \b DONE\par
+\par
+- \b0 build out infrastructure for multiple chunks in chunk pool - \b DONE\b0\par
+\par
+- add simple TextNode for status info - \b DONE\b0\par
+\par
+- display current usage in realtime while recording - \b DONE\b0\par
+\par
+- rewrite to use mixer stream - \b DONE\b0\par
+\par
+- actually start Track playing back (once only at first)\par
+\tab ..... \b AAAAARGH!!!!!  sooo close but NOPE.\b0\par
+\par
+FLAILING AROUND:\par
+\par
+- double-check channel counts / infos - \b DONE\b0\par
+\tab - make sure don't have dumb "off by one... power of 2" issue\par
+\tab - looks like there was various stereo/mono confusion\par
+\tab - also looks like the mixer stream is not set up all the way in StartAsio???\par
+\par
+- get rid of all BassAsioHandler - \b DONE\b0\par
+\tab - too opaque\par
+\tab - OK, input really is ASIO device 0, output really is ASIO device 1\par
+\tab - channel 0 on both\par
+\par
+For reference, BassAsioHandler docs say:\par
+
+\pard\li720 The following will be done internally:\par
+\par
+1. The ASIO device will be initialized (if already done, the ASIO device will just be set).\par
+\par
+2. The samplerate, format and number of channels will be determined from the given outputChannel.\par
+\par
+3. The ASIO device will be set to the determined samplerate. If this fails, the current ASIO samplerate will not be changed. In this case it might happen (if ASIO device samplerate and stream samplerate are different) that the ASIO output needs to be resampled.\par
+\par
+4. Output: use the AsioOutputCallback(Boolean, Int32, IntPtr, Int32, IntPtr) as the internal ASIOPROC.\par
+\par
+4. Enable and join the given asioChannel with the following channels according to the total number of chans of the outputChannel.\par
+\par
+5. Set the asioChannel format and samplerate according to the given samplerate and format of the outputChannel.\par
+\par
+Note: If the given asioChannel has already been enabled, it will be reused and not enabled and joined again! This means, that the channel number of the already joined channel will not be changed as well and might not match to the channel number of the given outputChannel.\par
+
+\pard\par
+\par
+\par
+- try push stream for sampled playback - \b DONE\b0\par
+\tab - just to eliminate that possibility....\par
+\tab - aaand, \b I AM FINALLY HEARING SOMETHING!!!!!!!!!!\par
+\tab - looks like push stream really helped!\par
+\tab - but, beat frequency and uneven mixing.\par
+\tab - need something other than pushing blindly from the original input!\b0\par
+\par
+\b\i WOOOOOOOOOOOOOOOOOOOOO\b0\i0\par
+QUICK CHECK IN!\par
+\par
+and then quit for tonight, can't deal with <6 hours sleep and MUST. WORK. OUT.\par
+\par
+\par
+- add SYNCPROC to push entire samples into push streams\par
+\tab - \b DONE!!!!!\par
+\tab - and WORKS!!!!!!!!!!!!\b0\par
+\par
+\par
+DONEDATE 2010/08/30:\par
+\par
+- look into seamless adding of new mixer streams\par
+\tab - don't want ANY popping...\par
+\tab - should I just precreate a bunch of Tracks, muted?\par
+\tab - websurf for clues here\par
+\tab - Ian suggested just not doing Stop/Start... \b DONE, WORKS!\b0\par
+\par
+- OK, OK, upgrade ALL libs\par
+\tab - \b OH HELL YES, THE INPUT STREAM IS PERFECT NOW!!!\b0\par
+\tab - \b DONE\b0\par
+\par
+- figure out why input stream is still ever so slightly crackly\par
+\tab - \b DONE\b0\par
+\par
+- nail down how large the offset/latency is\par
+\tab - experiment with configuring mixer / BASS / BASSASIO for smaller buffers\par
+ \tab and higher update frequency\par
+ \tab - \b DONE\b0  -- seems fine with only a 5 msec mixer buffer?\par
+\tab\tab - but mixer still sounds weird....\par
+\par
+- add FPS counter\par
+\tab - \b DONE\b0  but not clear how useful....\par
+\par
+- arrgh!  write eventing???  talking to a Track<byte>?  that's actually so beautiful I might just have to do it... but it would have to not talk to \i itself....\i0\par
+\par
+very frustrating that debug output doesn't work!\par
+\tab - search for XNA help on that?\par
+\tab - wow, Console.WriteLine writes to debug console!!!\par
+\par
+\tab - \b DONE\b0\par
+\par
+- figure out how to get mixer to sound a lot better (whatever that means....)\par
+\tab - spam on each buffer change\par
+\tab - give Chunks an Id and spam it\par
+\tab - verify whether chunk pattern is well-formed\par
+\tab - \b DONE\b0  -- totally well-formed.\par
+\tab - but still garbley sometimes.  \par
+\tab - hacked by adding EndChunk, seems to help a bit.\par
+\par
+\par
+- put up a blinking metronome at fixed tempo (60 BPM?  nice and slow)\par
+\tab - \b DONE\b0\par
+\tab\par
+\par
+\par
+- quantize all tracks to multiples of the beat frequency\par
+\tab - WHAT DOES THIS MEAN, EXACTLY?????\par
+\par
+\tab - app needs to know what time it is down to 0.01 sec\par
+\tab - track needs to save its start offset RELATIVE TO THE BEAT\par
+\tab - when track is completed, needs to start playing AT THAT TIME\par
+\par
+\tab - so how do I implement that???\par
+\tab\tab - shouldn't call SetData until that time?!\par
+\par
+\tab FUCKING ARRGH, is this just a doomed proposition?\par
+\tab No, it shouldn't be.  But the question is how do you get it to line UP exactly???\par
+\tab And what if you want it to be a continuous loop?  How do you NAIL that?\par
+\par
+\tab If it is a continuous loop, then it should be LONGER than the exact beat multiple.\par
+\par
+So.  You have:\par
+\tab - start offset relative to beat\par
+\tab - length of track in \i full beats\i0\par
+\par
+\tab When track is finished, should \i wait for the next start offset after the next full beat.\par
+\tab\i0 If past that time, then what???  Let's not worry about that yet....\i\par
+\par
+\i0 How do you wait for a specific time?\par
+\tab Can't use BASS for this....\par
+\par
+OK fine.  If track is <0.1 beats too long, then clip off the START of the track to make it an integral number of beats long.  Otherwise, zero-pad the track to make it an integral number of beats long.\par
+\par
+- hmm, that doesn't really work very well does it?  The zero-padding is a dead loss -- you can't hit the final beat nearly accurately enough.\par
+\par
+- OK, so lifting up on the button is really a CUE to STOP RECORDING WHEN THE TRACK HITS AN INTEGRAL NUMBER OF BEATS!!!\par
+\par
+- so it should set a flag in HolofunkBass, waiting for the right track length, rather than just bailing immediately.  OK that makes sense.\par
+\par
+BUT can't stay awake to do it.  Still very valuable yes yes, pip pip, tut tut.\par
+\par
+- \b DONE.\b0\par
+\par
+But time sync drifts between XNA GameTime and ASIO sample push time.  Should be locked at exactly two seconds, but look at the terrible drift:\par
+\par
+\f4\fs16 Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs \highlight3 22.14\highlight0 , beats 22.14]\par
+The thread '<No Name>' (0x2450) has exited with code 0 (0x0).\par
+The thread '<No Name>' (0x2010) has exited with code 0 (0x0).\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs \highlight4 24.23\highlight0 , beats 24.23]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs 26.23, beats 26.23]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs 28.24, beats 28.24]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs 30.25, beats 30.25]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs 32.25, beats 32.25]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs 34.25, beats 34.25]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs 36.25, beats 36.25]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1536, length 192000] at time [secs \highlight4 38.27\highlight0 , beats 38.27]\par
+\fs18\par
+\f0\fs20 That will obviously send everything to shit.  \par
+\par
+So, let's see about driving m_clock from the ASIO input proc...!?\par
+\par
+Still, it's so much closer that it's worth checking in :-D\par
+\par
+\b\fs36 - DONE!!!!!!!!!!!!!!!\b0\fs20\par
+SYNC ACTUALLY WORKS \par
+IT \i SOUNDS RIGHT!!!!!\i0\par
+\par
+\par
+WHAT IS A CIRCLE?\par
+- it is a Loopie.\par
+- it has a scene graph node.\par
+- it is maintained in the loopie collection in the Holofunk program.  keep it at top level for now.\par
+\par
+Holofunk has collection of Loopies\par
+each Loopie has a scene graph node\par
+Loopies get updated.\par
+\par
+LOOPIE INTERACTIONS\par
+- first, pull trigger over empty space to make one\par
+- release trigger to drop it \par
+\tab - pulsing trigger makes more\par
+\tab - dropping a loopie does NOT YET move other loopies away\par
+\par
+\b THEN\b0  BUILD ANYTHING SOUND-RELATED.\par
+\par
+MIKE \i IS \i0 THE RECORDER.  \par
+\par
+- first build basic recording infrastructure.\par
+\tab - figure out how to grab into growing stream that I manage\par
+\tab - nail down sample rate, time management, etc.\par
+\par
+- then add live playback.\par
+\par
+- then make mike loopie scale depend on current avg volume over last [update rate] interval.\par
+\par
+- then make loopie creation set a time point.\par
+\par
+- then make loopie release start... well... looping!\par
+\tab - implement basic mixer\par
+\tab - figure out how to get mixer buffers populated from sample history\par
+\par
+\b - THEN PLAY!!!!!!!!!!!\b0\par
+\par
+\par
+- metronome next?  probably.\par
+\par
+- add output level meters on all Tracks\par
+\tab - \b DONE\b0\par
+\par
+- when trigger released, drop a new circle\par
+\tab - \b DONE\b0\par
+\par
+- display Loopies as circles, positioned at final drop location\par
+\tab - \b DONE!!!!!\b0\par
+\par
+\par
+(phew, that was an epic three-week hacking spree!!!)\par
+\par
+\par
+\par
+DONEDATE 2011/09/06:\par
+\par
+- hit minus again on silenced loopie to delete it altogether\par
+\tab - \b DONE!!!!!\b0\par
+\par
+- fix left-channel-only bogosity\par
+\tab - add in HolofunkBass.InputChannelCount\par
+\tab - propagate it throughout\par
+\tab - \b DONE\b0\par
+\par
+\par
+\par
+- get some retroactive recording support\par
+\tab - eliminate that last little annoying bit of latency\par
+\tab - requires real state machine in HolofunkBass?\par
+\tab\tab - at least requires a proper coordinated architecture with the ASIO input proc....\par
+\par
+gah.  so what EXACTLY do we want to do here?\par
+\par
+1) have two RecycledChunks, at least as many samples each as our tuned input latency.\par
+2) have an AsioTarget object:\par
+\tab - set by the UI thread only\par
+\tab - points to the current buffer to copy into\par
+\tab - has a means to obtain the next buffer if the current one fills\par
+\par
+ASIO thread copies into current AsioTarget buffer if there is room, and updates the AsioTarget.\par
+If there is not room, it gets the next buffer (which MUST be big enough) and copies into that.\par
+In any case it updates the AsioTarget with the result.\par
+\par
+The UI thread, when making a new track, must do this:\par
+- Swap in an AsioTarget for the first non-retroactive chunk of the new track.\par
+\tab - From this point the ASIO input proc is writing into the track.\par
+- The new track contains a blank chunk slot at the beginning.\par
+- The UI thread then copies the recycled data into a new chunk,\par
+\tab and sticks that in the first track slot.\par
+- Result: the ASIO proc doesn't drop any data, the recycled chunks are cleared and freed,\par
+\tab and the UI thread continues on its merry way.\par
+\par
+What about beat clamping?\par
+- First, if we get a stop request, then we check -- from the UI thread -- how close we are to the end.\par
+\tab - note that the track will be growing asynchronously through this process!\par
+- If we are just over the end, then:\par
+\tab - swap back in the recycling AsioTarget (this stops recording new sound)\par
+\tab - trim the END (!)\par
+\tab - start it playing\par
+\tab - return to ready-to-record state\par
+- if we are not yet at the end, then:\par
+\tab - leave the recording AsioTarget in place\par
+\tab - set the timer\par
+\par
+hmmmmm, the timer is called from the game update thread!!!\par
+and this means it can be delayed by rendering, correct?!?!?!  :-(  :-(  :-(\par
+but we WANT it to be on the game update thread....\par
+\tab maybe the asio input proc should post an event on the game thread...?\par
+\tab hmm, punt this issue for now.\par
+\par
+- AsioTarget object\par
+\tab - single pointer update, should not tear on x86 (right???)\par
+\tab - right, else all the relativistic programming stuff would break\par
+\par
+\b - DONE...\b0  but BROKEN!\par
+\tab - metronome drifts rapidly off the beat!\par
+\tab - how can this be???\par
+\tab - need to compare it to the previous code in detail.... sigh....\par
+\par
+OK now it is 9 pm and much more clear-headed :-D  Let's do this.\par
+\par
+EXPERIMENTS TO TRY, ALL OF THEM JUST CHECKING BASIC METRONOME SYNC:\par
+- revert to previous version before stereo fix \par
+\tab - debug mode: DAMMIT, NOT SYNCED PERFECTLY.\par
+\par
+\f4\fs16 Track #1 pushed sample to stream[chunk #1, start pos 1280, length 96000] at time [4331008 timepoints, 90.2293333333333 secs, 90.2293333333333 beats]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1280, length 96000] at time [4379136 timepoints, 91.232 secs, 91.232 beats]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1280, length 96000] at time [4427264 timepoints, 92.2346666666667 secs, 92.2346666666667 beats]\par
+Track #1 pushed sample to stream[chunk #1, start pos 1280, length 96000] at time [4475392 timepoints, 93.2373333333333 secs, 93.2373333333333 beats]\par
+\fs18\par
+\f0\fs20 OK, so that explains a lot :-(\par
+After two minutes, totally out of phase.\par
+\par
+\tab - release mode (no spam in syncproc): SAME.\par
+\par
+ok, so at least it is consistent and not directly related to subsequent changes, that simplifies matters.  Could fix it in the past and then forward port the fix... if a fix exists....\par
+\par
+so... WHY?\par
+- expose total number of samples on the clock\par
+- record total number of samples in the track\par
+\tab - aaah, no point to that, it'll never line up perfectly....\par
+\par
+OK, looks like BASS_SYNC_MIXTIME on the SYNCPROC might have been the core problem...?!?!?!\par
+let's see.  Makes sense anyway, don't want the stall to be audible....\par
+\par
+feh, doesn't help enough.\par
+\par
+So what to do?  Purely hack it?  Put in some kind of hysteresis, tweaking the track length on each replay to drive it closer to perfect sync?  That seems like a pain in the ass, but possibly necessary anyway.....\par
+\par
+\b OH HELL YES, IT WORKS ***PERFECTLY***.\par
+Now can let the damn thing run and it stays EXACTLY on the beat for >5 minutes straight!!!!!\par
+and even better, the data shows it is staying perfectly centered!\par
+\b0\par
+\f4\fs16 Track #1 SyncProc invoked at time [18862080 timepoints, 392.96 secs, 392.96 beats]; average sync length (timepoints): 48025.6; timepoint drift: -25.60156; loop lag (timepoints): 397\par
+Track #1 SyncProc invoked at time [18909696 timepoints, 393.952 secs, 393.952 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 359\par
+Track #1 SyncProc invoked at time [18957824 timepoints, 394.954666666667 secs, 394.954666666667 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 321\par
+Track #1 SyncProc invoked at time [19005952 timepoints, 395.957333333333 secs, 395.957333333333 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 283\par
+Track #1 SyncProc invoked at time [19054080 timepoints, 396.96 secs, 396.96 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 245\par
+Track #1 SyncProc invoked at time [19102208 timepoints, 397.962666666667 secs, 397.962666666667 beats]; average sync length (timepoints): 48025.6; timepoint drift: -25.60156; loop lag (timepoints): 257\par
+Track #1 SyncProc invoked at time [19150336 timepoints, 398.965333333333 secs, 398.965333333333 beats]; average sync length (timepoints): 48128; timepoint drift: -128; loop lag (timepoints): 321\par
+Track #1 SyncProc invoked at time [19198464 timepoints, 399.968 secs, 399.968 beats]; average sync length (timepoints): 48128; timepoint drift: -128; loop lag (timepoints): 385\par
+Track #1 SyncProc invoked at time [19246080 timepoints, 400.96 secs, 400.96 beats]; average sync length (timepoints): 48025.6; timepoint drift: -25.60156; loop lag (timepoints): 397\par
+Track #1 SyncProc invoked at time [19293696 timepoints, 401.952 secs, 401.952 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 359\par
+Track #1 SyncProc invoked at time [19341824 timepoints, 402.954666666667 secs, 402.954666666667 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 321\par
+Track #1 SyncProc invoked at time [19389952 timepoints, 403.957333333333 secs, 403.957333333333 beats]; average sync length (timepoints): 47923.2; timepoint drift: 76.80078; loop lag (timepoints): 283\par
+\fs18\par
+\b\i\f0\fs20 I ROCK!!!!!\b0\i0\par
+\par
+- try BASS_SYNC_END as per Ian\par
+\tab - total bust!\par
+\par
+- put in FAQ workaround for depth buffer oddity\par
+\tab - try adding back in video masking???\par
+\tab - nope, never mind, none of it applies if you're using DepthAndPlayerIndex, which I am\par
+- but did add some intensity shading, so that's nice - \b DONE\b0\par
+\par
+- add in smoothing filter for hand location - \b DONE\b0\par
+\par
+- multiple colors for loopies (rotating through fixed set) - \b DONE\b0\par
+\par
+- home button to wipe the whole set - \b DONE\b0\par
+\par
+- make it so waving over loopies with minus/plus held silences/enables them\par
+\tab - state machine gets events for minus/plus\par
+\tab - can install an effect on the game state\par
+\tab - effect applies to all closest loopies touched during effect's lifetime\par
+\tab - \b DONE!!!\b0\par
+\par
+- minus/plus buttons mute/unmute individual loopies\par
+- trigger and minus will delete a loopie\par
+\par
+\par
+\par
+DONEDATE 2012/02/01:\par
+\par
+- download C++ Wiimote library\par
+\tab {{\field{\*\fldinst{HYPERLINK http://wiiyourself.gl.tter.org/ }}{\fldrslt{http://wiiyourself.gl.tter.org/\ul0\cf0}}}}\f0\fs20\par
+\par
+- get Kinect For Windows final SDK once it goes public - \b DONE\b0\par
+- install it - \b DONE\par
+\b0\par
+- run Kinect Explorer app in C++ - \b DONE, FIRST TRY YAYYY!!!\b0\par
+\line - investigate using that app as basis for next Holofunk\par
+\par
+...god, it's unchanged since 1995 when last I looked at a Windows C++ app.\par
+Is it worth it?  Well, let's look a bit further.  But my God, the unvarnished message loop....\par
+\par
+OK, well, once we get into NuiImpl.cpp things get incrementally more reasonable, but the gibberish is still pretty objectionable.  Maybe \i should\i0  go back and look at keeping most of it in .NET... but then what about Win8?  Hmm hmm hmm.  Well, let's see.\par
+\par
+well alright, it's not so bad in a creaky old familiar kind of weirdy way.  Sure is nice to know that everything is effectively [NoAllocation]....\par
+\par
+So Kinect needs its own thread.  And there's no backtalk from the Kinect thread to the main app.  Will need to ask Joe for a copy of his book....\par
+\par
+Wow, the Kinect thread drives D2D directly.  Well, that might not be \i so\i0  bad... can a single thread handle both ASIO and Kinect?  But we really don't want to have that, do we?\par
+\par
+No, no we don't.  We want separate threads for ASIO and Kinect.  And what about fuckin' Wiimote???\par
+\par
+What about BASS?  Let's look at a BASS C++ ASIO sample.\par
+\par
+...THERE ARE NONE, AAAAAGH.  Oh well.  But how do you build the C sample .exes?\par
+\par
+\par
+OK, I clearly have to evaluate the cost of reviving the .NET version, because this C business is just rather ridiculous.  Looks like you communicate with BASS via Windows messages?!?!?!\par
+\par
+...but what about the death of XNA?!?!?!  fuckin' sigh.\par
+\par
+Anyway, let's take one look at the wiimote piece.\par
+...nnnope, dead batteries.  OK, tomorrow night.  or something\par
+As regards code:  well, at least it's C++, but the polling looks rather weird, how do you jibe that with the Kinect sensor's WaitForMultipleObjects?  And then the ASIO thread is going to be calling the ASIO callback... so that'd be a third thread then.  GAH.\par
+\par
+Definitely worth 1) porting the old version to the current SDK, 2) evaluating Gen2 GC pressure and general allocation rate via all means.  Because if I can get the GC issues dealt with, it would just be soooooooooo much more productive to stay in .NET mostly... hmm, should probably still look at mixed mode for ASIO, but all the Kinect stuff would stay.\par
+\par
+So yeah, this would be a bet on porting it to Midori eventually :-)  Screw WinRT, no one knows how to get all the pieces there, the Wiimote libraries will never make it.\par
+\par
+\par
+\par
+- get Holofunkinect compiling with latest SDK - \b DONE\b0\par
+- get all of Holofunk compiling with latest SDK - \b DONE\b0\par
+- run and debug Holofunk with latest SDK\par
+\tab - especially watch out for ColorConversion!!!  :-O\par
+\tab - \b DONE, but...\b0\par
+\par
+-\b  FIX HORRIBLE CONTINUAL STATIC\b0\par
+\par
+what did I do to get Skyrim working?  only real audio tweaks done on this machine since Holofunk.\par
+\par
+- check Sound control panel...\par
+\tab - hmm, Kinect audio was set as default!  DISABLED.\par
+\tab - Sound > Recording > Line 1/2 > Properties > Advanced > Default Format\par
+\tab\tab - WAS 2 channel \b 24 bit\b0  48000 Hz (studio quality)\par
+\tab\tab - CHANGED BACK to 2 channel, 16 bit, 48000 Hz (DVD quality)\par
+\tab - and likewise for Sound > Playback > Line 1/2 > etc....\par
+\par
+- ok, so now how do I hear the mic with pass-through audio?\par
+\tab - FastTrack Pro is reacting with green level light, Sound control panel shows levels on mic...\par
+\tab - ...but can't hear anything passed through.\par
+\par
+\b YAYYYYY IT ALL WORKS!!!!!!!!!\par
+PHEEEEEEEEEEW.\par
+\b0\par
+- CHANGE Hz BACK TO 48000 IN HOLOFUNKBASS - \b never mind, it was never changed\b0\par
+\par
+- go back and research the Skyrim 48K audio issue - \b DONE\b0\par
+\par
+- investigate all available audio control panels etc. - \b DONE\b0\par
+\par
+- add back error code checking in all ASIO methods - NO NEED\par
+\par
+- FIX IT - \b DONE!!!!\b0\par
+\par
+\par
+RACE CONDITION!!!\par
+\f4\fs18 Starting recording; getting 2400 retroactive samples...\par
+    Sample1 is sufficient; prepending itTrack #7: completed sample [chunk #\par
+Updating initially empty sample: [chunk #194, start pos 0, length 2400]\par
+Start recording: current time: [28993536 timepoints, 604.032 secs, 906.048 beats]\par
+\f0\fs20\par
+It was prepending Sample1 to the new track concurrently in time with the ASIO thread overlapping it and spamming the not-yet-copied Sample struct!  (By the time the debugger got there, the array copy had completed, but the struct that Spam was calling on was still uninitialized.)\par
+\par
+\f5\fs16         \cf1 public\cf0  \cf1 void\cf0  Append(\cf2 Sample\cf0 <T> sample)\par
+        \{\par
+            \cf1 if\cf0  (m_samples.Count == 0) \{\par
+                m_samples.Add(sample);\par
+\par
+                \cf2 Spam\cf0 .Write(\cf5 "Track #"\cf0 );\par
+                \cf2 Spam\cf0 .Write(m_id);\par
+                \cf2 Spam\cf0 .Write(\cf5 ": appending initial sample"\cf0 );\par
+                sample.Spam();\par
+                \cf2 Spam\cf0 .WriteLine();\par
+            \}\par
+            \cf1 else\cf0  \cf1 if\cf0  (m_samples[m_samples.Count - 1].AdjacentTo(sample)) \{\par
+                \cf6 // coalesce adjacent samples\cf0\par
+                m_samples[m_samples.Count - 1] = m_samples[m_samples.Count - 1].MergeWith(sample);\par
+            \}\par
+            \cf1 else\cf0  \{\par
+                \cf2 Spam\cf0 .Write(\cf5 "Track #"\cf0 );\par
+                \cf2 Spam\cf0 .Write(m_id);\par
+                \cf2 Spam\cf0 .Write(\cf5 ": completed sample "\cf0 );\par
+                \highlight4 m_samples[m_samples.Count - 1].Spam();\f6  // boom\f5\par
+\highlight0                 \cf2 Spam\cf0 .WriteLine();\par
+\par
+                \cf2 Spam\cf0 .Write(\cf5 "Track #"\cf0 );\par
+                \cf2 Spam\cf0 .Write(m_id);\par
+                \cf2 Spam\cf0 .Write(\cf5 ": appending initial sample "\cf0 );\par
+                sample.Spam();\par
+                \cf2 Spam\cf0 .WriteLine();\par
+\par
+                m_samples.Add(sample);\par
+            \}\par
+\f0\fs20\par
+EXACTLY the kind of trouble the ring buffer will have to avoid.\par
+\par
+No no no, it's all due to initiallyEmptySample, which is LEGITIMATE.  But the track shouldn't start playing until it's been filled in, right???\par
+\par
+So, I guess the mixed mode thing is more mandatory than I thought!\par
+\par
+- reacquaint with my BASS library\par
+\tab - understand thread race deeply, to wit:\par
+\tab - it's simple :-)\par
+\par
+- move all actual sound data management to ASIO thread\par
+\tab - starting, stopping recording, etc.\par
+\tab - should always be constant amount of work\par
+\par
+- need wait-free two-way queues between each side\par
+\tab - how???\par
+\tab - queue state is 32 bits: 16-bit current head index, 16-bit current length?\par
+\tab\tab - no, that requires CAS.\par
+\tab\tab - do we *have* CAS in .NET???  let's frickin' check!\par
+\tab\tab - System.Threading.Interlocked.CompareExchange<T>(ref T, T, T)\par
+\tab\tab\tab - NICE.\par
+\par
+- ok, so lock-free queue works as:\par
+\tab - T[] m_contents\par
+\tab - Int32 m_state (16-bit start index, 16-bit length)\par
+\tab\tab - only up to 64K entries, it's fine\par
+\tab - enqueue gets the value, updates the array, calculates the updated state, tries CAS; if fails, retries\par
+\tab - dequeue does the converse\par
+\par
+- add debug asserts to each queue to ensure that enqueue and dequeue are only ever done from 1) consistent and 2) disjoint threads!  nice.\par
+\par
+- then we have two lock-free queues in either direction.  Does .NET 4 not already have this???  Let's check THAT!\tab\par
+\tab - no, evidently not.  oh well :-)\par
+\tab - System.Threading.Thread.MemoryBarrier() FTW\par
+\tab - VERY USEFUL: MSFT GDC lockless presentation\par
+\tab\tab - {{\field{\*\fldinst{HYPERLINK http://www.microsoft.com/download/en/details.aspx?displaylang=en&id=23107 }}{\fldrslt{http://www.microsoft.com/download/en/details.aspx?displaylang=en&id=23107\ul0\cf0}}}}\f0\fs20\par
+\tab - also this series of blogs on lock-free data structures in C#\par
+\tab\tab - {{\field{\*\fldinst{HYPERLINK http://www.boyet.com/Articles/LockfreeStack.html }}{\fldrslt{http://www.boyet.com/Articles/LockfreeStack.html\ul0\cf0}}}}\f0\fs20\par
+\tab\par
+- and WHY are we doing all of this???\par
+\tab - because we need inter-thread communication.\par
+\tab - but why not just synchronize???  there's no GC risk with that!!!\par
+\par
+- huh.  you're right :-O\par
+- ok, let's just use Queue.Synchronized, why be fancy?  will be nice to save the time.\par
+\par
+- so what we are writing is command records, Command/Parameter, WPARAM/LPARAM all over again :-D\par
+\par
+- if a GC hits our ASIOPROC is screwed anyway\par
+\par
+- make two-way communication queues between ASIO thread and main thread\par
+- each queue allows only one thread to enqueue, and only one OTHER thread to dequeue (check this with wrapper)\par
+- two separate queues, one for each direction\par
+\par
+- WHY the queues?  Because each thread needs to stick to its schedule, and shouldn't be woken up by anything other than its normal tick; yet we need a way for each thread to request the other to react in some way\par
+\par
+- don't need to be wait-free queues because both threads are subject to the same GC, so a GC will screw them both\par
+\tab - true wait-free queues would be required if we split the ASIO stuff out into C++\par
+\par
+\par
+- need to understand my own code's control flow again...\par
+\par
+Main thread:\par
+StartASIO()\par
+\tab sets up MixerToOutputAsioProc() (the one that updates the clock)\par
+\tab sets up encoder\par
+\tab sets up input push stream\par
+\tab sets up peak level meter\par
+\tab starts ASIO\par
+\tab All of this seems fine thread-wise, so leave it [MainThread].\par
+\par
+Track.StartPlaying() (on MAIN THREAD)\par
+\tab create push stream\par
+\tab m_bass.AddStreamToMixer(HStream, IntPtr, SYNCPROC);\par
+\par
+- OK, implemented the queues, too sleepy to test tonight, try it tomorrow.\par
+\par
+\par
+\b\fs56 HOLY SHIT ALL MY RACE FIXES WORKED THE FIRST GODDAMNED TIME!!!!!\par
+THAT LIKE NEVER HAPPENS!!!\par
+:-D :-D :-D :-D :-D\b0\fs20\par
+\par
+well that is enough for victory tonight :-)  (and can't sing too loud with Michelle's mom sleeping in the next room)\par
+\par
+WHY does the volume have to be turned ALL the way up?  very odd.\par
+\par
+- fix skeleton & UI\par
+\tab - hmm, things are offset, why?\par
+\tab - WHO CARES, MOVE IT BY (0, -50)!!!\par
+\par
+- enqueue thread affinity assertion blew up!\par
+\tab - because WIIMOTE HAS ITS OWN THREAD!!!\par
+\tab - so fuck the affinity checking, it's not paying its way and it's SAFE ANYHOW.\par
+\par
+- hmm, this decoupling thing seems to have impressively reduced the number of audible GCs!  GO FIGURE\par
+\par
+\par
+DONEDATE 2012/04/12:\par
+\par
+- PUT HOLOFUNK ON THE LAPTOP\par
+\tab - \b DONE\b0\par
+\par
+\par
+- research old thread about possible fix for time out of sync when looping\par
+\tab - get it minimally working - \b DONE\par
+\par
+\par
+- \b0 refactor UpdateEmptySample, beat counting, etc., to get greater determinism and eliminate code not needed now that the ASIO thread does everything\par
+\tab - first standardize on "int TimepointsPerBeat" -- quantize EVERYTHING precisely - \b DONE\b0\par
+\tab - then revise recording code per scribbled notes\par
+\tab\tab - \b DONE!  \b0 at least as far as eliminating crappy math and making everything precise.\par
+\tab\tab - and precision is way up, yay!\par
+\par
+- test recording longer samples -- seems to be some problem (over two measures???)\par
+\tab - \b DONE!!!\b0   can only push one sample at a time when using BASS_SYNC_END, go figure.\par
+\tab but now it is tight, tight, TIGHT!!!\par
+\par
+- mute gesture touches all in range, not only closest, and continues to do so\par
+\tab - but delete gesture still touches only single closest\par
+\tab - use distance-squared in comparison loop? - was already, go me\par
+\tab - \b DONE\b0  \par
+\par
+- measure markers!!!\par
+\tab - modify muting/unmuting: press once means mute on NEXT measure; double-press means immediate\par
+\tab - tracks can be 1, 2, or multiple of 4 beats long\par
+\tab - track stop length is calculated internally\par
+\par
+alright, that sounds fine, fine, fine.\par
+\par
+RACE CONDITIONS HERE?????\par
+\tab scene graph is consumed by XNA thread.\par
+\tab scene graph is MUTATED by... what?  XNA thread?  is that true?\par
+\tab\tab new loopies are added when responses processed on XNA thread, so that's OK.\par
+\tab\tab BUT loopies are DELETED on the WiimoteLib thread, perturbing the scene graph during traversal!!!\par
+\tab\tab BLAH!\par
+\par
+\tab simple thing to do is just to marshal everything over to the XNA thread... but that's more latency....\par
+\par
+\tab well, we haven't actually seen any bad effects from this yet, have we?  no.\par
+\tab but we could, if we were deleting things and recording things in a tight interleaving.\par
+\tab anyway, keep it strongly in mind.\par
+\par
+\par
+m_mikeSignal should become another rendered loopie pulling its size from the current mike signal.\par
+\tab should we change its parent???\par
+\tab well, now we just force its transform to be where the appropriate hand is... effectively the same???\par
+\par
+yes, it would be nice to be able to change parents.  does current scene graph support that?\par
+\tab no, no it doesn't, insofar as parents are immutable.\par
+\tab otherwise moving a child would definitely lead to glitches during rendering that conflicts with a move.\par
+\par
+- ok, worst comes to worst, we synchronize on the Holofunk instance itself at the top of the Update, Render, and Wii-event-handler routines.  Until we hit trouble, though, don't sweat it.\par
+\par
+OK HOW EXACTLY IS THIS GOING TO WORK?\par
+\tab the scene graph hierarchy: does it even function at all?\par
+\tab test code said it did....\par
+\tab RenderedLoopie needs a List<SpriteNode> for all the children of the parent sprite\par
+\tab\tab does the scale of that sprite spread down???  it had better not!\par
+\tab\tab\tab might need another lower scale transformation or something....\par
+\tab\tab most crucially need all this machinery for the currently active one!\par
+\tab\tab ok, so need to decouple duration from FloatTrackness\par
+\tab\tab\tab (so can have a beat meter even for the currently recording not-yet-track)\par
+\par
+NO NO NO.\par
+the concept is, scene graph nodes can have smarts, it's OK.\par
+but they should be VISUAL elements not SEMANTIC APP elements.\par
+So, specifically, SpriteNode is fine and well defined.\par
+\par
+Then adding a track is really adding a whole sub-hierarchy.  Who manages the whole hierarchy?\par
+\tab Why not have a LoopieNode?\par
+\tab Contains a GroupNode which consists of \par
+\tab 1) the sprite (with a property on the LoopieNode to reach it), \par
+\tab 2) the BeatNode.\par
+\par
+Then LoopieNode can expose properties which allow access to the lower items.\par
+\par
+ASIO thread is well handled.  XNA and WiimoteLib threads can plausibly be the same.  That leaves only the Kinect thread, and the Kinect thread merely updates state variables; the texture update is the worst issue.  Is there a thread-safety problem around that?  Until we see one, let's not sweat it.\par
+\par
+\par
+\par
+YAAAAAAAAAAAAAAAY!!!!  Now we have a real scene graph hierarchy with local transforms that ACTUALLY do something!  And the origin is working properly!  Secret:  ADD translation but MULTIPLY scale.  IS A HAPPY.\par
+\par
+\par
+So now we are really set up to add the BeatNode... maybe tomorrow night!\par
+\par
+We also want a BeatNode that illustrates how long the "track" is, and what beat of it we're currently on.\par
+\tab It does this functionally, by getting a Moment for now, and a Moment for the "track" duration.\par
+\tab So implementing that is job one.\par
+\tab\b DONE!!!\b0\par
+\par
+\par
+\b FINAL FEATURES\b0\par
+\par
+- add art for new icons\par
+\tab\b DONE\b0\par
+\par
+- add some kind of sound-cancel icon for mute mode - \b DONE\b0\par
+- add speaker-up icon for unmute - \b DONE\b0\par
+\par
+- only delete if there were NO unmuted tracks in the just-hit set - \b DONE\b0\par
+\par
+- fix the measure markers to be circles - \b DONE\b0\par
+\par
+- make mike red when recording - \b DONE\b0\par
+\par
+- tempo change only when no tracks playing or recording - \b DONE\b0\par
+- tempo in status line - \b DONE\b0\par
+\par
+- status line smaller - \b DONE\b0\par
+\par
+- remote battery level in status line - \b DONE\b0\par
+\par
+- skeleton lock - \b DONE\b0\par
+\tab - make it be CurrentSkeleton\par
+\tab - track m_currentSkeletonPlayerId, update whenever skeleton unavailable\par
+\par
+- add highlighting for touched tracks - \b DONE\b0\par
+\par
+- modify grouping:  minus mutes ALL sounds within radius (rather than just closest at that instant) - \b DONE\b0\par
+\par
+- line drawing - \b DONE\b0\par
+\par
+- add red line connecting mike and hand when recording - \b DONE\b0\par
+\par
+- implement groups on screen (screen areas, highlighted borders) - \b DONE!\b0\par
+\tab - render white lines whenever 1) hand in that quadrant, 2) loopie(s) in that quadrant, 3) no higlighted loopies\par
+\tab - loopies are highlighted when quadrant is highlighted\par
+\par
+- fix issue with new loopie sticking to mike - \b DONE!\b0\par
+\par
+- add effective loopie scale-down - \b DONE\par
+\b0\par
+- try scale at 0.7 down to 0.5 just for grins - \b DONE\b0\par
+\par
+\par
+\par
+DONEDATE 2012/06/18:\par
+\par
+- when deleting loopie, don't switch instantly into "select all in group" mode\par
+\tab - this lets you delete a standalone loopie without instantly muting the rest of the group\par
+\tab - DONE\par
+\par
+\par
+panning and effects generally:\par
+- where does effect state live?\par
+- do we make effects relatively generic?\par
+- how do we implement the parameter UI?  (e.g. how do we decompose the responsibilities?)\par
+\par
+\par
+let's start with the last.  PARAMETER UI:\par
+- define the layout\par
+\tab - the four SpriteNodes to indicate what you're effecting\par
+\tab - the delimiting box\par
+\tab - the alpha'ed crosshairs\par
+\tab - the envelope square\par
+\par
+- may need to generalize the concept of LoopieFunc?\par
+\tab - no, not really.\par
+\tab - but do need some helper methods on scene graph\par
+\tab\tab - MapWiimoteToParameterSpace\par
+\tab\tab - SetParameters (only valid when showing parameter UI)\par
+\tab - also need to parameterize the loopie-selection behavior\par
+\par
+- how do we encapsulate the parameter envelopes?\par
+\tab - Parameter is (in the abstract) a (Moment -> float) function\par
+\tab - define ConstantParameter for the simple initial case\par
+\tab - define TrackParameters class for all the relevant parameters\par
+\tab\tab - pan, volume first\par
+\tab - Parameter can have default initial value\par
+\par
+- need to pass the TrackParameters collected during recording into the new Track\par
+\tab - so TrackParameters becomes a property of Track\par
+\par
+- what about interaction with microphone???\par
+\tab - perhaps the last recorded TrackParameters are sticky?\par
+\tab - perhaps there is a CurrentParameters instance that sticks?\par
+\tab - so you can go into parameter space without anything selected....?\par
+\par
+ack!  but how do you select NOTHING when the screen is full?\par
+\tab - HOLD THE MIKE TO YOUR FACE.\par
+\tab - new events: MikeCloseToFace, MikeFarFromFace\par
+\par
+when mike is close to face, there is nothing selected.\par
+then you can go into parameter space and affect the mike itself.  or rather, the "current parameters"\par
+\par
+EFFECT LAYOUT:\par
+- left: pan\par
+- down: volume\par
+\par
+that's it, at first :-)\par
+\par
+CODE TO IMPLEMENT THE EFFECTS:\par
+\par
+pan:\par
+Bass.BASS_ChannelSetAttribute(m_hStream, BASS_ATTRIB_PAN, floatValue); // -1 to 1\par
+\par
+volume:\par
+Bass.BASS_ChannelSetAttribute(m_hStream, BASS_ATTRIB_VOL, floatValue); // 0 to 1\par
+\par
+OK.  So, changes to state and to state machine.\par
+\par
+State adds:\par
+- MicrophoneParameters: the current set of envelope values for the microphone\par
+- RecordedParameters: the parameters currently being recorded (a subset of MicrophoneParameters)\par
+\par
+Seems like we want some kind of partial map here.\par
+- Parameters: a collection of Parameter instances\par
+\tab - can enumerate the contained parameters\par
+\tab - can update other Parameters (CopyInto operation)\par
+\par
+Parameters are indexed by \i specific Parameter types.\par
+\i0 We don't use strings, we use typeof(ParameterSubtype)!\par
+\par
+Parameter subtypes themselves have the ability to \i apply themselves to a BASS stream at a point in time.\i0\par
+So Parameter instances are a HolofunkBass concept.  Same with ParameterSets (which are really more like Type -> Parameter maps).\par
+\par
+alright, I like that.\par
+\par
+Sooooo, the UI change is:\par
+\par
+- When mike is NOT near mouth:\par
+\tab - initial state has circle causing selection\par
+\tab - selection changes based on proximity of wii hand\par
+\tab - pulling trigger goes into record mode as today\par
+\tab - minus/plus work as today\par
+\par
+- When mike IS near mouth:\par
+\tab - NOTHING is selected. \par
+\tab\tab - YOWACK!  That can't work.  What if you are in minus mode and you sweep across your face?\par
+\tab\tab - Answer: this "nothing is selected" behavior occurs \i only in initial state.\par
+\tab\tab\i0 - But then what if you want to select something that's where your head is?\par
+\tab\tab - It's the MIKE that's near the mouth.  DUH!  So it's fine.\par
+\par
+\tab - but still we'll have that behavior only in initial state.\par
+\tab - So, nothing is selected when in initial state and mike is near mouth.\par
+\par
+\tab - D-pad... whoops, did we just lose tempo shift?  If D-pad triggers parameter mode, and if you want to get parameter mode while using the mike only, then yes we did.\par
+\tab - what to do about it???  make tempo shift a parameter available only with no active music!!!  hmm.\par
+\par
+\par
+SOON: holding down trigger WHILE holding down A starts recording\par
+\par
+WHAT IF YOU DO THAT WHILE YOU ARE ACTUALLY RECORDING A TRACK?\par
+can you position new tracks in parameter mode???  UGH!!!!!!\par
+...no, why UGH?  \par
+\tab - because what the fuck state are you in?  really calls for concurrent states (OR-states).\par
+\tab - you're actually in Envelope And Track Recording Mode.\par
+\tab - and how does it work if you let go of the A button before you let go of the trigger?\par
+\par
+nonetheless, conceptually you could imagine that it would simultaneously have the unconstrained circle moving around with the usual red-mike-sound in it, AND the constrained parameter square pinned to the inner box.  \par
+\par
+But what about the above issues?\par
+SIMPLER JUST TO NOT ALLOW THAT.\par
+trigger when in microphone parameter mode does NOTHING.\par
+can sort all the other shit out later if I even GET that far for fuck's sake!\par
+\par
+So, final interaction:\par
+\tab - D-pad is tempo shift w/no tracks\par
+\tab - D-pad is nothing when tracks exist\par
+\tab - A button enters parameter mode; home gets you out\par
+\tab - IN parameter mode, D-pad lets you choose the axes\par
+\tab\tab - left: pan; right: chorus\par
+\tab\tab - down: volume; up: filter\par
+\tab - A button in parameter mode sets the current parameter(s)\par
+\tab - Holding down A animates the transition\par
+\tab - If tracks are selected, it applies to the tracks\par
+\tab - If you entered with no tracks selected, it applies to the microphone parameters\par
+\par
+\par
+And that's it for tonight!  If I can get that in, it's super good.\par
+\par
+\par
+MICROTASKS:\par
+- implement Parameter abstract base (supports min, max, default, time-to-float interpolation)\par
+- implement ConstantParameter subclass\par
+- implement Effect abstract base (defines list of ParameterTokens)\par
+- implement PanEffect and VolumeEffect\par
+- implement AllEffects class that lists all available effects\par
+\tab - and can calculate the set of all ParameterTokens!\par
+- EFFECTS ARE STATELESS!\par
+\tab - given a ParameterSet and a time, they can extract their tokens and apply themselves.\par
+\tab - that means we will want efficient ParameterSet lookup from typeof(Effect) -> ParameterToken -> Parameter value.\par
+\par
+- and we just use the generic AllEffects to go from a Track's ParameterSet to side-effecting all the appropriate BASS channels!  HELL YEAH!\par
+\par
+OK SO THE GENERAL CONCEPT HERE IS:\par
+effects define parameters.\par
+the set of all effects defines the set of all parameters.\par
+IN PRINCIPLE, one can make an arbitrary mapping from:\par
+\tab UI axis -> SET OF PARAMETERS ACROSS MULTIPLE EFFECTS.\par
+\par
+That is, one could envision a setup where the left-right axis was "low frequency reverb -> high frequency chorus" and the top-bottom axis was "soft low pitch -> loud high pitch".  Then interpolating those "presets" would update many parameters across many effects simultaneously.\par
+\par
+So what we would need is a data structure that represented all of this sparsely.\par
+\par
+This would be a pure set of Parameters, each with its ParameterToken and... its containing Effect?  No, instead, the \i type of\i0  its containing \par
+Using types for effects is still well-defined.  But what we want is some kind of ParameterToken singleton construction pattern, so each effect can define its set of parameters, yet they can all be aggregated and compared meaningfully.\par
+\par
+This then gives a well-defined meaning to the D-pad: it lets you select WHICH parameters a given axis endpoint affects; it can affect many of them!  (eventually!)\par
+\par
+OK I THINK I REALLY LIKE THIS.  It's exactly what Beardyman was talking about:  fade between two completely arbitrary sets of parameters.  Only issue is you can't have overlap... or maybe you can and it just takes the average.\par
+\par
+\par
+\par
+that's all pretty quick alright.  THEN:\par
+\par
+- add MicrophoneEffectSet to current state\par
+- add EffectSet to Track class\par
+\par
+- factor out touched-loopie logic\par
+\tab - should be a particular kind of operation implemented in the state machine and plugged in\par
+\tab - parameter UI should be a different logic altogether\par
+\tab - "nothing selected because mike near head" should be yet another logic\par
+\par
+- add scene graph elements for parameter UI\par
+\tab - bounding box (center of screen, 1/4 the screen area)\par
+\tab - square\par
+\tab - axis label sprites\par
+\par
+- add scene graph elements for mike-head proximity\par
+\tab - red dot on mike\par
+\tab - red dot in cursor-circle\par
+\par
+- modify state machine:\par
+\tab - initial state becomes aware of mike-head proximity\par
+\tab\tab - engage red dot based on proximity\par
+\tab\tab - set selection behavior based on proximity\par
+\tab - press A button to switch into Effect state\par
+\tab\tab - default to pan/volume\par
+\tab\tab - remember which effects you have selected on each axis (based on Type)\par
+\tab\tab - really you don't have effects on each axis, you have parameters... actually EffectParameter\par
+\tab - EffectUpdate state (when A down in Parameter state) updates the effects on each frame\par
+\tab\tab - applies to all selected Loopies, or to the MicrophoneEffects if none\par
+\par
+- no, dammit, you SHOULD be able to record in parameter state!  What if you want to pan rapidly and knock off some quick tracks?!\par
+\par
+gah, really want that now.  how hard is it?\par
+\par
+- in parameter state, trigger WITHOUT A BUTTON puts you into RecordingDuringEffect state, basically as usual.\par
+\tab - Behavior is same as Recording state.\par
+\tab - A button is IGNORED in RecordingDuringEffect state.\par
+\tab - When you let go of trigger from RecordingDuringEffect state, you revert to Effect\par
+\par
+How do we implement multiple parameters within an effect?\par
+At first, we don't care; there is only one float per effect.\par
+But eventually we do have multiple.  Do we have actual Parameter subclasses?\par
+NO we don't.\par
+\par
+\par
+BUT WE DO need stateful Effect classes!  Because some effects actually have their own FX handles!\par
+So AllEffects really is a Type -> EffectFactory map.\par
+And we \i do\i0  need EffectSet.\par
+And then we can apply an EffectSet to a ParameterSet.\par
+\par
+\par
+...eventually we really want Envelopes, so we can just save one or two numbers (the parameter axis values) and interpolate many other parameter values from them.  Much more efficient on space.  \line THE GOAL: to avoid space duplication from\par
+- multiple tracks needing effects with the same parameters (don't want to store identical data per-track)\par
+\tab - this implies that parameters, once associated with a track, become immutable and therefore sharable\par
+- multiple parameters that are all interpolated from the same parameter UI values\par
+\tab - in other words, if the X axis is interpolating between 10 parameters, don't want to save all those interpolated values; cheaper to recalculate (space-wise, anyway)\par
+\par
+BUT this is complication for another day.  Right now we only have a couple so let's just copy them.  And fuck it, let's not worry about the immutability either; not enough parameters for it to matter yet.\par
+\par
+Hmm.  But these need to be updatable after the fact.\par
+Well, that's easy; you just replace any given Parameter in the ParameterSet with a new immutable shared one.\par
+\par
+FOR NOW, the Microphone ParameterSet is mutated like crazy and applied per-Kinect-update.  (watch out for threading issues....)\par
+When the track is forked, the Microphone ParameterSet is cloned.\par
+...what is the policy around the Microphone ParameterSet?\par
+\tab - it must be complete since it could have been arbitrarily effected.\par
+\tab - let's assume that setting parameters on tracks DOES NOT affect the microphone parameters.\par
+\tab\tab - then you can moan eerily while frobbing other stuff too.\par
+\par
+OK, so the Microphone ParameterSet is complete.\par
+The Parameter UI side-effects the Microphone ParameterSet.\par
+\par
+If there is a set of selected tracks, the Parameter UI \i puts the Microphone's mutable Parameter instances directly into those ParameterSets.\i0\par
+\par
+But then what does it do once the A button comes up?  It needs to copy the existing Parameters, and replace all the pointers in the Tracks' ParameterSets with the copied ones.  OK, so we DO need Copy.  But during effect wiggling, we can just mutate the shared one.  That's pretty nice actually.\par
+\par
+\par
+Alrighty, that works, but ran out of gas tonight.  At least all the effect/parameter infrastructure is there now :-)  Should be able to get the rest in about three hours on Saturday morning... then two hours of testing and dinking, then off to Heden!\par
+\par
+- multiple monitor support\par
+\tab - get git - \b DONE\b0\par
+\tab - check out sharpdx sources - \b DONE\b0\par
+\tab - install dxsdk - \b DONE\b0  but might need to redo, redistributables complained\par
+\par
+\par
+- research SharpDX Toolkit\par
+\tab - specifically SpriteBatch and PNG loading\par
+\tab - nope can't do it yet\par
+\par
+- can't load SharpDX.sln in VS2010, so VS2012 RC1 ahoy!!!  time to catch up with the rest of the world :-D\par
+\tab - install \b DONE\b0\par
+\par
+\par
+\par
+DONEDATE 2012/07/23:\par
+\par
+- try converting holofunk to ANX\par
+\tab - seems mostly OK but content project is fubar\par
+\tab - ANX doesn't seem to support loading PNGs; need to save as 32-bit RGBA (how???)\par
+\tab - pixelformer to the rescue!!!  looks like maybe that works.\par
+\par
+OK enough for tonight SHEEEESH.\par
+\par
+\par
+- check laptop to make sure can run DX11!!!\par
+\tab - ack, how to do that???\par
+\tab - dxdiag says it's DX11\par
+\tab - but multicubetexture sample doesn't run\par
+\tab - install dxsdk, get dx debugging working\par
+\tab - \b DONE\b0\par
+\par
+- ask online about ANX texture loading - \b DONE\b0\par
+\par
+- ask about SharpDX texture loading too, for that matter\par
+\tab - never mind, there are all kinds of things!  Texture2D.Load ferpetesake!\par
+\tab - yay r8g8b8a8 works!\par
+\par
+- try building SharpDX from source - \b FAIL\par
+\b0\par
+- modify SharpDX sample to have two windows\par
+\tab - show proof of concept of multiple windows w/SharpDX (risk assessment; is the easy version easy?)\par
+\tab - \b DONE!!!!!\b0\par
+\tab - kind of insanely easy!\par
+\tab - AFTER, that is, \par
+\tab 1) turning on unmanaged code debugging\par
+\tab 2) using dx control panel to enable dx debugging for MultiCubeTexture.exe\par
+\tab 3) hitting some kind of "unable to debug mixed mode with .NET 2.0" error\par
+\tab 4) going to solution properties and then Configuration Manager, adding x86 configuration\par
+\tab 5) \b WIN.\b0\par
+\par
+\par
+- test loading PNG texture into MultiCubeTexture\par
+\tab - \b FAIL\b0  - looks like shit\par
+- test loading 32-bit BMP into MultiCubeTexture\par
+\tab - \b WIN!!!!!\b0   looks fucking perfect!!!!   OH YAY!\par
+\par
+\par
+wow, that's a great stopping place!!!\par
+\par
+\par
+OH JOY FOUND WINDOWS FORMS + XNA EXAMPLE!!!!!\par
+so far so good, looks like it will be ok....\par
+\par
+- test Windows Forms + XNA hack job\par
+\par
+- add in support for multiple Holofunk windows\par
+\tab - split out HolofunkForm class\par
+\tab - HolofunkForm takes a scene graph and an "orientation"\par
+\par
+\tab - apply orientation when traversing scene graph\par
+\tab - test out negative scale to see if it mirrors (GOD I HOPE SO)\par
+\par
+\tab - HolofunkForm just draws itself in its Draw()\par
+\par
+\tab - how do we get repeated Draw()s???\par
+\par
+then Holofunk class gets all the actual game state.\par
+\par
+\par
+DONEDATE 2012/10/18:\par
+\par
+\par
+ugh.  do we want those to be different from the ones associated with the selected loopies?  would that be too confusing?\par
+\tab - but the selected loopies will in general have MULTIPLE PARAMETER VALUES!\par
+\tab - so what do we do about THAT?  what if you want to affect parameters INDIVIDUALLY?\par
+\tab - maybe each crosshair direction selects ONE parameter, exclusively.  at first.\par
+\tab - then can add menus etc. to increase the functionality\par
+\tab - so you see one parameter-square per selected track, and you can set them all at once\par
+\tab - and you can avoid fucking up any parameters you don't want to touch.\par
+\par
+CROSSPAD IS FOR PRESETS.\par
+generalized assignment of parameters to axes / postures.\par
+preset determines if you're affecting just one or multiple axes when you hold down A.\par
+\par
+tap A briefly to bring up menu???\par
+\par
+\par
+THEN WHAT ABOUT FRIGGIN' SELECTION / MUTATION?\par
+\par
+problem is that I don't want to use the trackpad, it's too horrible.\par
+\par
+So.  Selection is already covered, more or less -- either cursor contact, or whole region.  Let's pretend that's enough.\par
+\par
+Then, we have three actions the user can take:\par
+- Choose a type of effect.\par
+- Actually manipulate with that effect.\par
+- Choose to record the manipulation, or not.  (eventually)\par
+\par
+And I don't want to use the pad for direct manipulation.  Irrational instinct.\par
+\par
+So, how about this?  OPTIONALLY, A button, tapped, causes selection.  A button, held, pops menu.  \par
+\par
+Once manipulation is selected, the A button, held down, performs manipulation (and tapped, selection).  Home button returns to state with no manipulation active.\par
+\par
+(The reason we need an explicit selection gesture is that manipulation takes over positioning; positioning is then for effect purposes, not for loopie placement or implicit selection purposes.)\par
+\par
+Deselection is \i implicitly done when the mike is raised.\i0   When the mike is near the mouth, the A button serves to \i manipulate the mike\i0  with the currently selected effect, and the trigger, as usual, makes a new loopie.  YES BEAUTIFUL, can manipulate while recording with A and trigger, though you'd better wind up in the right place on screen!\par
+\par
+(Otherwise, deselection can be done with Home again in a plain-cursor state.)\par
+\par
+- add mike-to-head proximity, to trigger record dot inside hand cursor\par
+\tab - this is an effect that exists only in normal mode\par
+\par
+LATER INTERACTIONS:\par
+\par
+- moving over loopie makes it respond (change color, at first)\par
+- pressing A on loopie makes it respond again (white circle surround???)\par
+- holding A on loopie lets it be dragged\par
+- releasing A drops loopie but leaves it selected\par
+\par
+- A on background unselects loopies\par
+\par
+\par
+\par
+- minus button mutes a quadrant, plus button unmutes\par
+\par
+- crosspad triggers effects\par
+- wave arm while crosspadding to apply effect in realtime\par
+- trigger plus crosspad makes effect persistent\par
+\tab - how do you make mike effect persistent?\par
+\tab - do trigger plus crosspad with nothing selected?\par
+\tab - no, select mike!!!  why not.\par
+- trigger plus crosspad with something selected causes the dynamic modification to get recorded\par
+\par
+two-player work;\par
+\par
+- actually try two Wiimotes for the first time - \b DONE!\par
+\tab - \b0 shit Nyko ripoff doesn't work, only the REAL NINTENDO DEAL.\par
+\tab - ok, time to get like three more....\par
+\par
+\par
+- support two Holofunk state machines - \b DONE\b0\par
+\tab - tricky part: what if two actions affecting same tracks?\par
+\tab\tab - don't EVEN worry about it... yet\par
+\par
+- support two Wiimotes - \b DONE\b0\par
+\par
+refactor ALL the code:\par
+\par
+- support PlayerSceneGraph - \b DONE\par
+\par
+- TEST - DONE\b0\par
+\par
+- support two Kinect player input channels - \b DONE\b0\par
+\par
+- figure out all the player entry/exit/side-switching logic\par
+\tab - modes: 1-player-only; 1-player, static-second-player; 2-player, fully dynamic\par
+\tab - \b DONE\b0\par
+\par
+- support two ASIO input channels - AsioInput, multiplexed into single BassAsio handler(?) - \b DONE\b0\par
+\par
+- \b TEST - \par
+\par
+W T F is up with this stack\par
+\b0  \tab [External Code]\tab\par
+ \tab Holofunk.exe!Holofunk.PlayerState.HandRegion.get() Line 201 + 0x1b bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.PlayerSceneGraph.Update(Holofunk.PlayerState playerState = \{Holofunk.PlayerState\}, Holofunk.Kinect.HolofunKinect kinect = \{Holofunk.Kinect.HolofunKinect\}, Holofunk.Core.Moment now = \{Holofunk.Core.Moment\}) Line 185 + 0x10 bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.HolofunkSceneGraph.Update(Holofunk.HolofunkState holofunkState = \{Holofunk.HolofunkState\}, Holofunk.Kinect.HolofunKinect kinect = \{Holofunk.Kinect.HolofunKinect\}, Holofunk.WiimoteController wiimote = \{Holofunk.WiimoteController\}, Holofunk.Core.Moment now = \{Holofunk.Core.Moment\}, long tickCount = 115, long totalTickCount = 171880000) Line 388 + 0x44 bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.Holofunk.UpdateWorld() Line 332 + 0x8f bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.Holofunk.Tick() Line 273 + 0x8 bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.Holofunk..ctor.AnonymousMethod__0() Line 90 + 0x9 bytes\tab C#\par
+ \tab [External Code]\tab\par
+ \tab Holofunk.exe!Holofunk.Holofunk.Initialize.AnonymousMethod__2() Line 140 + 0x16 bytes\tab C#\par
+ \tab Holofunkinect.dll!Holofunk.Kinect.HolofunKinect.Kinect_AllFramesReady(object sender = \{Microsoft.Kinect.KinectSensor\}, Microsoft.Kinect.AllFramesReadyEventArgs e = \{Microsoft.Kinect.AllFramesReadyEventArgs\}) Line 189 + 0xe bytes\tab C#\par
+ \tab [External Code]\tab\par
+ \tab Holofunk.exe!Holofunk.PlayerState.HandRegion.get() Line 201 + 0x1b bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.PlayerSceneGraph.Update(Holofunk.PlayerState playerState = \{Holofunk.PlayerState\}, Holofunk.Kinect.HolofunKinect kinect = \{Holofunk.Kinect.HolofunKinect\}, Holofunk.Core.Moment now = \{Holofunk.Core.Moment\}) Line 185 + 0x10 bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.HolofunkSceneGraph.Update(Holofunk.HolofunkState holofunkState = \{Holofunk.HolofunkState\}, Holofunk.Kinect.HolofunKinect kinect = \{Holofunk.Kinect.HolofunKinect\}, Holofunk.WiimoteController wiimote = \{Holofunk.WiimoteController\}, Holofunk.Core.Moment now = \{Holofunk.Core.Moment\}, long tickCount = 114, long totalTickCount = 169830000) Line 388 + 0x44 bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.Holofunk.UpdateWorld() Line 332 + 0x8f bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.Holofunk.Tick() Line 273 + 0x8 bytes\tab C#\par
+ \tab Holofunk.exe!Holofunk.Holofunk..ctor.AnonymousMethod__0() Line 90 + 0x9 bytes\tab C#\par
+ \tab [External Code]\tab\par
+ \tab Holofunk.exe!Holofunk.Holofunk.Initialize.AnonymousMethod__2() Line 140 + 0x16 bytes\tab C#\par
+ \tab Holofunkinect.dll!Holofunk.Kinect.HolofunKinect.Kinect_AllFramesReady(object sender = \{Microsoft.Kinect.KinectSensor\}, Microsoft.Kinect.AllFramesReadyEventArgs e = \{Microsoft.Kinect.AllFramesReadyEventArgs\}) Line 189 + 0xe bytes\tab C#\par
+\par
+\par
+That is some bullshit right THERE.  OK fine, let's NOT make the Kinect drive everything.\par
+\par
+alright, it was because m_inputPushEffects was uninitialized, causing assertion dialogs, causing re-entrant Kinect callbacks.  Root issue was StartASIO was NEVER called on the HolofunkBassAsioInput.  Moving that whole routine into the HolofunkBassAsioInput constructor made it happy at least somewhat.  Let's checkpoint.\par
+\par
+\par
+- hack using the right ASIO input channel\par
+\tab - experiment and find out how the hell it actually works\par
+\par
+- DEBUG THE SHIT OUT OF IT\par
+\tab - \b WORKS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\b0\par
+\par
+\par
+\par
+- bring fixes back over\par
+\tab - remove bogus assertion around player mode when second skeleton found\par
+\tab - spam console write locked it up\par
+\par
+
+\pard\sa200\sl276\slmult1\f7\fs22\lang9\par
+\par
+DONEDATE 2012/12/08:\par
+
+\pard\f0\fs20\lang1033 OK HERE IS THE FINAL INTERACTION PLAN FOR EFFECTS AND MENUS AND EVERYTHING, VERBALLY.\par
+screw updating Visio, it's not worth the time.\par
+\par
+RESEARCH GREENSCREEN SAMPLE IN K4W SDK 1.6\par
+\par
+\par
+\par
+SHARPDX EXPERIMENTS:\par
+\par
+NORMAL MODE\par
+\b - touch crosspad: select effect preset (no dynamic effect)\par
+- hold crosspad: pop up effect selection menu for that direction\par
+\b0 - hold trigger: start recording new sound\par
+\tab - \b if previous track still finishing its duration, pad it immediately with silence and start new track as usual\par
+\b0 - hold minus / plus: enter mute / unmute mode\par
+\b - press A: lock selected tracks (or mike), enter effect mode\par
+- hold home: pop menu\par
+- hold hand next to mike (ONLY WHILE IN NORMAL MODE, NO MUTE/UNMUTE/ETC): select mike \par
+\tab such that A will lock mike for selection mode\par
+\tab and crosspad will start applying effects to mike\par
+\b0\par
+MUTE/UNMUTE MODE\par
+- mute/unmute tracks you move over or select\par
+- release button: back to normal mode\par
+\par
+\b MENU MODE\par
+- while home held: navigate menus\par
+- home up: select menu item\par
+\b0\par
+\b EFFECT SELECTION MENU\par
+- same as menu mode\par
+\tab - select effects on each axis\par
+\tab - maybe same set of effects in each direction just for symmetry...?\par
+- crosspad up: select effect preset\par
+\b0\par
+RECORDING MODE\par
+- while trigger held: recording new track\par
+\tab - hand position: track placement\par
+- let up trigger: \b track finishes recording out to its preselected length, in Normal mode\par
+\b0\par
+\b EFFECT MODE\par
+- hold down A: apply and modify effect parameters (X / Y only at first) on selected tracks (or mike)\par
+- hold down trigger while holding A: effect recording mode\par
+- press home: return to normal mode\par
+\par
+EFFECT RECORDING MODE\par
+- let go of A: back to normal mode\par
+- let go of trigger: back to effect mode, commence looping parameters (even if A still held)\par
+\par
+\b0\par
+LOOPING MODEL FOR PARAMETERS\par
+- generalized parameter space\par
+- each parameter can be driven by an independent track\par
+- mapping of track to parameter is purely dynamic\par
+\par
+soooo, when you start recording:\par
+- sample X/Y position\par
+- record which parameters are correlated to which position\par
+\par
+what's the \i abstraction?\i0\par
+the abstraction is:  there are ParameterTracks that semantically are time -> [ParameterValue] functions.\par
+when you start effect recording, you create a new ParameterTrack for the parameters in the current preset.\par
+If those parameters supersede one or more current ParameterTracks, then you can reclaim those the moment you make the new ParameterTrack.\par
+\par
+That way we can overlay short loops, etc., on top of longer underlying parameter loop cycles.\par
+\par
+\par
+APPLYING EFFECT WHEN TOUCHING CROSSPAD\par
+- should all effects have wet/dry levels as one axis?  maybe Z?????\par
+- and what about the goddamned edge-of-the-area problem?\par
+\tab - namely, that the position on the screen at which your selected tracks exist may limit the starting parmeter value.\par
+\tab - switching coordinate mappings from purely spatial selection over to parameter space.\par
+\par
+sooooo, what should happen?  \i tap\i0  A to enter effects mode on the given selection?  \par
+\tab yyyyyes, let's say so.\par
+\tab then once you're \i in \i0 effects mode, \i holding A\i0  actually \i applies\i0  the effect.  the first tap locks in your selection set.\par
+\tab that means it works well for the microphone too.\par
+\par
+can you record a track \i and\i0  effect it simultaneously???\par
+\i\tab not with this interface, not at first.\i0\par
+\tab let's get this working and then see what new insight prevails.\par
+\par
+\par
+\par
+- quickly try out the pan fix suggested online\par
+- hook up volume in effects UI, at least!\par
+\par
+\par
+\par
+RESEARCH VST\par
+\par
+\par
+\par
+next:\par
+- mung MultiCubeTexture to simply render flat squares (circling slowly or something)\par
+\par
+- think about how to restructure holofunk scene graph to support distinct resources per form\par
+\par
+\par
+\par
+chorus and echo:\par
+\f3\fs16 _fxChorusHandle = \cf2 Bass\cf0 .BASS_ChannelSetFX(_Stream, \cf2 BASSFXType\cf0 .BASS_FX_DX8_CHORUS, 1);\par
+_chorus.fWetDryMix = 0f;\par
+trackBarChorus.Value = 0;\par
+\cf2 Bass\cf0 .BASS_FXSetParameters(_fxChorusHandle, _chorus);\par
+\par
+_fxEchoHandle = \cf2 Bass\cf0 .BASS_ChannelSetFX(_Stream, \cf2 BASSFXType\cf0 .BASS_FX_DX8_ECHO, 2);\par
+_echo.fWetDryMix = 0f;\par
+trackBarEcho.Value = 0;\par
+\cf2 Bass\cf0 .BASS_FXSetParameters(_fxEchoHandle, _echo);\par
+\f0\fs20\par
+\cf6\f3\fs16 // 3-band EQ\par
+\cf2 BASS_DX8_PARAMEQ\cf0  eq = \cf1 new\cf0  \cf2 BASS_DX8_PARAMEQ\cf0 ();\par
+_fxEQ[0] = \cf2 Bass\cf0 .BASS_ChannelSetFX(_Stream, \cf2 BASSFXType\cf0 .BASS_FX_DX8_PARAMEQ, 0);\par
+_fxEQ[1] = \cf2 Bass\cf0 .BASS_ChannelSetFX(_Stream, \cf2 BASSFXType\cf0 .BASS_FX_DX8_PARAMEQ, 0);\par
+_fxEQ[2] = \cf2 Bass\cf0 .BASS_ChannelSetFX(_Stream, \cf2 BASSFXType\cf0 .BASS_FX_DX8_PARAMEQ, 0);\par
+eq.fBandwidth = 18f;\par
+\par
+eq.fCenter = 100f;\par
+eq.fGain = \cf1 this\cf0 .trackBarLowEQ.Value / 10f;\par
+\cf2 Bass\cf0 .BASS_FXSetParameters(_fxEQ[0], eq);\par
+eq.fCenter = 1000f;\par
+eq.fGain = \cf1 this\cf0 .trackBarMidEQ.Value / 10f;\par
+\cf2 Bass\cf0 .BASS_FXSetParameters(_fxEQ[1], eq);\par
+eq.fCenter = 8000f;\par
+eq.fGain = \cf1 this\cf0 .trackBarHighEQ.Value / 10f;\par
+\cf2 Bass\cf0 .BASS_FXSetParameters(_fxEQ[2], eq);\par
+\f0\fs20\par
+and every other damn one in BASSFX!\par
+\par
+\par
+(then: graphical rendering of the pan effect)\par
+(then: graphical rendering of the other effects)\par
+(then: timed parameters)\par
+\par
+\par
+(and of course you could let people move tracks around, perhaps with the unused 1/2 buttons?!?!?!  that could help with the "recording envelope and audio at same time" issue)\par
+\par
+\par
+- mute becomes delayed command, to take effect at next... what?  measure?  beat?  let's say measure\par
+\par
+\par
+- don't bother yet with gray background\par
+\par
+- A button down sets rewind point for currently selected tracks\par
+\tab - cursor goes to rewind cursor as long as any of those tracks are in TouchedTracks\par
+\tab - those tracks remain highlighted until TouchedTracks no longer contains any of them\par
+\tab - subsequent A button downs cause those tracks to revert to that point\par
+\tab - until user moves arm away from ALL those tracks; then tracks resync at next loop point\par
+\tab - add double-triangle rewind icon in that case\par
+\par
+- separate spammer thread altogether\par
+\par
+\par
+- collect many heavy statistics\par
+\tab - average FPS in last N frames\par
+\tab - msec per Kinect frame\par
+\tab - msec per Kinect dispatch activity\par
+\par
+\par
+- NEW INTERFACE TWEAKS:\par
+palette state: d-pad quick press chooses that direction's preset; prolonged hold goes to Preset Selection.\par
+\par
+TECHNICAL TERMS:\par
+\par
+Preset: a parameterized Interaction.\par
+\par
+Interaction: a particular interface for manipulating some Parameters and/or generating input sound.  \par
+Examples: the Palette interaction is the default "circular loopies, spatially static, space mapped to grouping"; the Parameter interaction is "parameter mode", "space mapped to X/Y knobs, which are in turn mapped to (sets of) min/maxable Parameters"\par
+\par
+The Parameter interaction furthermore allows \par
+\par
+\par
+Preset is typically an entire Effect, with some saved initial parameter values.\par
+\par
+Effect Wipe state:\par
+- sets the Effect Wipe preset UNTIL THE NEXT D-PAD PRESS.\par
+\par
+Effect Wipe preset behavior:\par
+- 1 resets the mike to no effects.\par
+- A resets the touched loopies to no effects.\par
+\par
+\par
+What is this "preset behavior"?\par
+Answer: Palette interaction has a Preset as part of its state.\par
+Preset can be used to look up a State to transition to?!?!?!?!\par
+hmmmmm.\par
+\par
+Let's make them be sub-states.  So PresetState is a sub-state of PaletteState, and so is EffectWipeState.  That actually makes sense.\par
+\par
+Parameter state is on the other hand unrelated to PaletteState, totally different interactions etc.\par
+\par
+\par
+(Don't do Widgets yet... Interactions are not yet composable....)\par
+\par
+\par
+Parameter state:\par
+- Initially shows \i all\i0  the parameter values of the touched loopies.\par
+\tab - No.  IIf it is a preset then it must get applied at some point.\par
+\tab It might even be an animated preset!  In which case the act of\par
+\tab\i entering the preset\i0  must also apply the preset parameters to\par
+\tab the selection set.  Otherwise the user has the impossible task\par
+\tab of replicating the animation just in order to assign it!\par
+- (Eventually) A + trigger records animated envelope.\par
+\tab - This can of course be made into a preset.\par
+- D-pad press up/down vs. left/right allows rotating through the parameters on either axis.\par
+\tab - Maybe display the next ones?\par
+- D-pad hold brings up selection.\par
+- 1 applies the current parameters to the microphone (additively with priority).  (or removes the microphone from the effected set)\par
+- Home WIPES the current parameters?  No, that doesn't really work.  Home returns out of parameter mode, duh.\par
+\par
+\par
+\par
+STATES GET THE UPDATE FUNCTIONS DIRECTLY.\par
+STATES CAN CALL THE UPDATE FUNCTIONS OF OTHER STATES?!?!?!\par
+\tab "parent" state?\par
+\par
+\par
+HOW DO YOU DO MULTIPLE EFFECTS THIS WAY?\par
+- Set up both effects (effects continue)\par
+\tab - How do you REMOVE an effect?\par
+\tab\tab - NORMAL PRESET!\par
+\tab\tab - just one more preset.  Has no effects at all.\par
+\par
+But what is the model of parameter sets?  Purely additive?  Prioritized?  Would have to be prioritized, for sanity's sake.  In what order?  The order of application?  Presumably, yes....\par
+\par
+Then how do we describe a NEGATIVE parameter set?  That is, the "No Effects" preset, that removes (rather than combining with) existing effects?\par
+\par
+Hmm, would seem you should be able to indicate that a parameter set transitioned from populated to empty.  In other words, rebind the associated loops to empty parameter sets at that time.  And it's a (transient) STATE, not a mere parameter set.\par
+\par
+\par
+\par
+\par
+- ensure static initializers actually all run before MicrophoneParameters gets initialized!  (and ensure MikeParameters initialized properly\par
+\par
+- Define MicrophoneTouched flag and interaction\par
+\tab - aaaah, really sucky how bad the hand position recognition is!!!  can't use hand distance reliably!\par
+\tab - so, what then?  A to enter parameter mode is fine for anything you're touching.  But can't use hand 2D proximity to face because might want to be knobbing a loopie that's right in front of your face.  \par
+\tab - FUCK IT.  Use the 1 button to set the microphone parameters, totally independently.  Can enter parameter mode with mike ONLY selected, anytime.\par
+\tab - dammit why Kinect 2 doesn't do much better?  oh well, KEEP THE WIIMOTES!!!  and BUY MORE.  ... but won't scale into the future.  Oh well, ANY damn clicky remote-like thing will work.\par
+\tab - if Kinect 2 gets hand distance reliably and open/closed hand pose, can probably do a lot with that.\par
+\tab - DONE???\par
+\par
+- Copy the microphone effects when starting a new track.\par
+\tab - DONE?????????\par
+\par
+\par
+- Plug in as many BASS effects as are easy to enable (phaser, flange, reverb....)\par
+\tab - HALF DONE\par
+\par
+\par
+\b THEN TIME TO RESEARCH VST!!!!!!!\b0\par
+\par
+\par
+Then implement region effects:\par
+- actual Region class?  yeah why not\par
+\tab - Region has its ParameterSet\par
+- PlayerState.MicrophoneRegion\par
+- each Loop has an associated Region\par
+- there's a WiiHandRegion\par
+- entering parameter mode sets the region parameters on the current WiiHandRegion\par
+\tab - and propagates them to the microphone parameters and all the Loopies in the Region\par
+\tab - NO NO NO, the loopies know their region and \i reference the parameters in it\par
+\i0\par
+each Loopie has its own LoopParameterSet and a reference to its Region, which has a RegionParameterSet\par
+...yes, that's consistent.\par
+\par
+then:\par
+- VST support FINALLY!\par
+\par
+\par
+\par
+\par
+EVENTUALLY:\par
+- Visio-like dynamic group/ungroup\par
+- in other words, DYNAMIC USER-EDITABLE REGIONS\par
+- each dynamic group becomes a VST instance\par
+- let the user build their VST hierarchy and maybe even REORDER it\par
+- SUPER SWEET, DUDE!\par
+\par
+\par
+BLOG:\par
+http://www.djtechtools.com/2012/12/12/the-beardytron-5000-mkii-building-beardymans-ultimate-live-production-system/#disqus_thread  HELL YESSSSS\par
+\par
+{{\field{\*\fldinst{HYPERLINK http://www.youtube.com/watch?v=bCC9uHHAEuA&#t=10m55s }}{\fldrslt{http://www.youtube.com/watch?v=bCC9uHHAEuA&#t=10m55s\ul0\cf0}}}}\f0\fs20  awesomely inspiring\par
+\par
+\par
+- FUN STUFF\par
+\tab - silly volume-sensitive faces for audience view, based on averaged volume - \b DONE XD\b0\par
+\par
+\par
+- fix bugs/annoyances:\par
+\tab - subzero BPM crashes - \b DONE\par
+\tab - \b0 fix loopies showing beats on secondary view - \b DONE\par
+\tab - \b0 make second hand rectangle go away when no second player - \b DONE\b0\par
+\par
+UPGRADE TO SHARPDX:\par
+- switch to Net40Debug not DIRECTX11_1 (which is not supported on Win7, time to upgrade there too) - \b DONE\b0\par
+\par
+\b OMG OMG OMG OMG OMG!!!  SPRITEBATCH SAMPLE RIGHT OUT OF THE BOX!!!!\par
+\b0 need to add multi window support though.  will investigate.  Per-Window Draw, I think?  something like that? - \b DONE\b0\par
+\par
+- convert all Holofunk to build with SharpDX - \b DONE\par
+\b0 - get Holofunk up on screen with dual SharpDX windows - \b DONE\par
+\b0 - fix Kinect texture rendering - \b DONE\par
+\b0 - fix other sprites - \b DONE\b0\par
+\par
+very simple effects system:\par
+\tab - "pan/fade" - hold A and move left/right \par
+\tab - "volume" - top is max, bottom is silent\par
+\par
+\b YAY IT WORKS FOR MICROPHONE\b0\par
+\par
+- WIRELESS MIKES?!  with RCA *out*?!\par
+\par
+TWO CATEGORIES OF EFFECT: PER-LOOP AND PER-REGION.\par
+No reason volume and pan can't be per-loop and may have others as well, it's cheap if you don't have to instantiate a mega-VST.\par
+But for mega-VST effects we make them per-region.\par
+\par
+HOW TO SET THE ACTIVE MICROPHONE EFFECT?\par
+Simple:  for region effects, there is a mike icon in the current region affecting the mike, and tweaking the parameters in that region tweaks the mike as well.\par
+Starting a loop in a region instantly inherits the active region effect parameters IN THAT REGION.\par
+\par
+For per-loop effects... speculative here... holding the WIIMOTE HAND NEXT TO THE MIKE HAND AT THE MOUTH is how to control the active parameter on the mike.\par
+Starting a loop instantly inherits the active per-loop effect parameters ON THE MICROPHONE.\par
+\par
+This seems to give the greatest possible granularity at the cost of \i severe confusion.  OH WELL. MUST PROTOTYPE.\i0\par
+\par
+Complexity o' the evening:  requirements tension.\par
+- Zero-allocation update of parameters being manipulated in the UI, across all touched loopies & the mike.\par
+- Minimal-allocation copying of parameters at the end of parameter manipulation, across all touched loopies & the mike.\par
+- Create new parameters corresponding to parameter UI; only change them when UI parameter dimensions change.\par
+\par
+So, we have the UIParameters, which is the set of parameters selected in the current UI, along with their values.  Once we have parameter recording, this becomes the currently recorded parameter "tracks".\par
+\par
+Then we have the MicrophoneParameters and LoopParameters, which share the mutable UIParameters until such time as the UIParameter \i dimensions\i0  change, at which point the UIParameters get copied and \i the copies get shared with all relevant Loopies/Mikes.  \i0 That's the key: there is \i one\i0  immutable Parameter copy, that is shared by all other parameter sets.  And actually it's set up well for that, go me!\par
+\par
+OK, that makes sense and is pretty straightforward.\par
+\par
+\par
+Soooo, now what? \par
+- EffectGranularity - Loop, Region - \b DONE\b0\par
+- Effect has EffectGranularity - \b DONE\b0\par
+- Can get a ParameterSet for all Loop effects - \b DONE\b0\par
+- Instantiate per-Loop effects for each Loopie, and for the microphone \b - DONE\b0\par
+- Parameter mode applies any current Loop effect parameters to the set of TouchedLoopies - \b DONE\b0\par
+\par
+- TEST IT - \b DONE!!!!!!\b0\par
+\par
+- Copy the current loop value to parameter mode when entering it\par
+\tab ...what if there are multiple different values?  WEIGHTED AVERAGE, WHY NOT, NOTHING BETTER IS POSSIBLE\par
+\tab - \b DONE\b0\par
+\par
+- Add echo effect!\par
+\b\tab - DONE\b0\par
+\par
+- Add text labels for dimensions.\par
+\b\tab  - DONE\par
+\b0\par
+- D-pad interaction to switch dimension effects\par
+\b\tab  - DONE\par
+\b0\par
+HOLEE SHIT WORKING FIRST TIME.\par
+parameters map one to one to knobs on the screen, reading left to right by row, top to bottom.\par
+the big knobs are the Controls.\par
+FX1 is effect 1, on through 8.\par
+duplicate parameter names are because it is under the same label in two different rows, e.g. all the duplicated ones at the bottom for the top / bottom knobs.\par
+Don't really know what "FX G" is at the bottom... ah it's probably gain!!!  NIIIIICE\par
+\par
+OK so let's go\par
+\par
+Huh, what are those program names???\par
+-\tab\tab programNames\tab\{string[16]\}\tab string[]\par
+\tab\tab [0]\tab "AbnormalBreak"\tab string\par
+\tab\tab [1]\tab "Audioschnitzel"\tab string\par
+\tab\tab [2]\tab "Beat It"\tab string\par
+\tab\tab [3]\tab "Beef"\tab string\par
+\tab\tab [4]\tab "DestroyMusic"\tab string\par
+\tab\tab [5]\tab "Dictate It"\tab string\par
+\tab\tab [6]\tab "Dictate Me"\tab string\par
+\tab\tab [7]\tab "Director"\tab string\par
+\tab\tab [8]\tab "Earbleed"\tab string\par
+\tab\tab [9]\tab "Filterstop"\tab string\par
+\tab\tab [10]\tab "InTheArena"\tab string\par
+\tab\tab [11]\tab "Keyable"\tab string\par
+\tab\tab [12]\tab "Maestro"\tab string\par
+\tab\tab [13]\tab "Mega Aua"\tab string\par
+\tab\tab [14]\tab "TheMoLoop"\tab string\par
+\tab\tab [15]\tab "Trico"\tab string\par
+\par
+Ah, it's only the first 16!  What about the rest???\par
+\par
+HOLY SHIT, SELECT "PRESETS BY BEARDYMAN" ?!?!?!?!?!?!!?!?!?!?!?!?!?!\par
+\par
+is there any way to get to those from the VST interface?  HMMMMM\par
+\par
+\b DICTATOR MODE IS JUST AN INTERACTION. \par
+\b0\par
+\par
+\b AWWWW HEEEELLL YEEEEEAAAAAHHHHH\b0\par
+looks ready to go as soon as I get a few basic clues!!!  TOMORROW!!!!!\par
+\par
+\b - TRY TURNADO!!!!!!!\par
+- \b0 ARRRRRGH, SETPROGRAM DOESN'T WORK AT ALL.\par
+\tab - so can't load the preset that I want.\par
+\b\tab - W T F\par
+\b0\tab - I was just impatient :-D  \b\i IT WORKS!!!!!!!\b0\i0\par
+\par
+Next time:\par
+- call ChannelSetDSP from somewhere other than the audio thread, somehow\par
+\tab - avoid taking the loading hit in the audio thread\par
+\tab - YESSSS, CACHING THEM UPFRONT WORKS AAAAWESOMELY\par
+\tab - \b DONE\b0\par
+\par
+\par
+Damn slice arranger tempo drift.\par
+- Holofunk is clocked accurately vs. metronome.\par
+- Turnado playing its own sound player is clocked accurately vs. metronome.\par
+- Holofunk driving Turnado is NOT clocked accurately.\par
+- Does Turnado expect 44.1Khz incoming sample rate where Holofunk is giving 48Khz?\par
+\tab - Tried clocking Holofunk at 120Hz and Turnado at 110.25Hz (= (44100 / 48000) * 120)\par
+\tab - Turnado still JUST SLIGHTLY too fast.  But MUCH closer.\par
+\tab - Then try Turnado at 105Hz... nope still too fast, but CLOSER YET\par
+\tab - Then at 100Hz... JUST NOT HEARING THAT MUCH DIFFERENCE, ARRRRGH\par
+\par
+98bpm seems to be aligned perfectly at 3/4 time.\par
+So, try 4/3 * 98 = 130 & 3/4 * 98 = 73.5\par
+\par
+O HO.\par
+130.612 = 48000 / 44100 * 120\par
+and that seems to be the perfect speed for SliceWarz.\par
+WHAT DOES IT MEAN, NO ONE CAN KNOW\par
+oh wait oh wait!!!  maybe the tempo is saved in the program!!!!!!!!!!!!!!!!!!\par
+THEN IT MAKES SENSE, HALLELUJARHAHARAH\par
+\par
+\b\i OH HOLEEEEEEE SHIIIIIT YEEEEEEEAH\b0\i0\par
+\par
+\par
+\par
+- fix home so it wipes effects when pressed on existing tracks!!!!!  YES YES YES of course.\par
+\tab - wanna clean up, just minus-minus-minus\par
+\tab - wanna clean up the mike effect... what do you do???  \par
+\tab\tab - can't push home while in "mike-parameter mode"\par
+- OK fine.  Quick press of home gets you out of mike-parameter mode.  LONG HOLD of home resets mike parameters (and dumps you out).  So, press 1, hold home (for two beats), and bob's your uncle.\par
+\b\tab - DONE!!!\b0\par
+\par
+- get the microphone interaction sorted out\tab\par
+\tab - push 1 from palette state, go into parameter mode for mike only\par
+\tab\tab - push A from parameter mode in that situation = nothing happens\par
+\tab - push 1 from loop-parameter state: add/remove mike to/from parameter mix\par
+\b\tab - DONE!!!\b0\par
+\par
+- Beat events should be delivered an even number of beats after the time the last state was entered!\par
+\tab - That way you always know exactly how long to hold it from the start time.  HOLD FOR ONE BEAT has its precise meaning.\par
+\tab - So the state should know its precise time of entry and on beat events (or whenever) should be able to query for BeatsSinceStateEntered.  EASY PEASY and very deterministic.  YAY\par
+\b\tab - DONE!!!\b0\par
+\par
+- make parameter mode support D-pad rotating through effects\par
+\tab - only pushes effect values when A (or 1) were actually pressed in parameter mode\par
+\tab - so can cycle through without affecting anything (absent positive button press)\par
+\b\tab - DONE!!!  ???\par
+\b0\par
+- two-player parameter mode\par
+\tab - player 1 always the square on left, player 2 on right\par
+\tab\tab - unless only one player mode (not dynamic, static)\par
+\tab - player 1 blue, player 2 green (or whatever)\par
+\b\tab - DONE!!!\b0\par
+\par
+- tweak the text positions & sizes a bit\par
+\b\tab - DONE!!!\b0\par
+\par
+\b READY FOR DEMO AT THAT POINT\b0\par
+\par
+\par
+STATE STATE:\par
+- states should be able to have their own mutable state (timers, etc)\line - scoped to that state for its lifetime (and perhaps as long as the occupied state is a child)\par
+\tab - nice to have access to parent state state\par
+- touched loopies would fall into this category\par
+\tab - potentially "parameter mike" might as well, not sure yet\par
+- nah, do state bags\par
+\par
+
+\pard\sa200\sl276\slmult1\f7\fs22\lang9\par
+\par
+DONEDATE 2013/03/23:\par
+\par
+}
+ 

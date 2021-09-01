@@ -1,0 +1,51 @@
+<div class="wikidoc">
+<p><strong>To run Holofunk, you need this hardware:</strong></p>
+<ol>
+<li>A fairly beefy Windows PC, with at least a dual core processor, 2GB of RAM, and two USB hubs (e.g. USB ports in both front and back, say).
+</li><li>A Kinect. </li><li>A Wiimote (the remote only, not the &quot;nunchuk&quot; add-on). </li><li>A Bluetooth USB receiver, such as <a href="http://www.amazon.com/Rocketfish-Rf-Mrbtad-Micro-Bluetooth-Adapter/dp/B001D8CCYK/ref=sr_1_1?ie=UTF8&qid=1315468468&sr=8-1">
+this one</a> (the one I'm using). </li><li>A fast audio adapter, such as <a href="http://www.amazon.com/M-Audio-Mobile-Interface-Preamps-Front-Panel/dp/B005L0XMNQ/ref=sr_1_7?s=electronics&ie=UTF8&qid=1315468533&sr=1-7">
+this one</a> (the one I'm using). </li><li>A microphone, which can go into your audio adapter. </li><li>Headphones or speakers or something, which can come out of your audio adapter.
+</li></ol>
+<p><strong>You also need this software (go right ahead and install it):</strong><br>
+<br>
+</p>
+<ol>
+<li>Windows 7. I have no intention of trying or supporting Holofunk on any other version. (Until Windows 8, that is ;-)
+</li><li>The <a href="http://www.microsoft.com/download/en/details.aspx?id=23714">XNA 4.0 SDK</a> for Windows/Xbox game development.
+</li><li><a href="http://www.amazon.com/Microsoft-C5E-00521-Visual-Studio-Professional/dp/B0038KTO8S/ref=sr_1_1?s=software&ie=UTF8&qid=1315469154&sr=1-1">Visual Studio 2010</a>, and not the Express version, either. The Express version evidently won't open XNA projects.
+ If this is blocking you from working on Holofunk, please let me know. </li><li>The non-commercial <a href="http://www.amazon.com/M-Audio-Mobile-Interface-Preamps-Front-Panel/dp/B005L0XMNQ/ref=sr_1_7?s=electronics&ie=UTF8&qid=1315468533&sr=1-7">
+beta Kinect Windows SDK</a>. </li><li>The <a href="http://asio4all.com/">ASIO4ALL sound driver</a>. </li></ol>
+<p>The other libraries you will need are redistributed as part of the source archive.</p>
+<p>Setting up ASIO4ALL, configuring your audio interface so it's picking up the microphone at a reasonable level, making sure the Kinect SDK is working, and configuring your Bluetooth adapter are all topics unto themselves, but the web is very helpful.<br>
+<br>
+Once you have all that set up, you can try downloading the project. It should compile more or less out of the box once the above is all installed; let me know if not.<br>
+<br>
+<strong>Actually running Holofunk</strong><br>
+<br>
+First you must copy (by hand, sorry!) the libraries from Holofunky/Lib to your Holofunky/Holofunky/Holofunky/bin/x86/{Debug,Release} directories, or you'll get complaints about &quot;bass.dll not found&quot; or &quot;WiimoteLib.dll not found&quot;.</p>
+<p>There is some rigmarole involved with getting the Wiimote to connect reliably. I have found that I have to do the following:</p>
+<ol>
+<li>Open &quot;Devices and Printers&quot; from start menu. </li><li>If&nbsp;you installed the Wiimote before (it shows up as &quot;Nintendo RVL-CNT-01&quot;),&nbsp;first Remove it.
+</li><li>Click &quot;Add a Device&quot;. </li><li>Hold down the 1 and 2 buttons on the Wiimote. It should start flashing. DO NOT release these buttons. (Hold it in your non-mouse hand ;-)
+</li><li>You should see the Wiimote appear (as &quot;RVL-CNT-01&quot;). Click it and choose Next.
+</li><li>Choose &quot;Pair without a code&quot; (the bottom-most option). </li><li>Choose Done as soon as possible. </li><li>See the &quot;Installing driver&quot; popup in the lower-right of the screen. Wait for it to say &quot;Driver installation complete&quot;. Sometime in here, the Wiimote probably stopped blinking.
+</li><li>Hold down the 1 and 2 buttons on the Wiimote (yes, again). </li><li>Run Holofunk (debug build!). </li><li>If you get an assertion failure or null pointer exception in Wiimote setup code, quit, release the 1 and 2 buttons, press them again, and repeat step 11.
+</li><li>If Holofunk comes up with a lovely rainbow-y window, the Wiimote should have stopped blinking and be showing a steady single LED. You are now good to go.
+</li></ol>
+<p>At least this only has to be done once per boot -- once the Wiimote is showing a single steady LED, you can quit and restart Holofunk to your heart's content and it will pick up the Wiimote right away each time.</p>
+<p><strong>Now, Freak Out!!!</strong></p>
+<ul>
+<li>Stand in front of your Kinect, with mike in one hand and Wiimote in the other. (The default is right-handed, mike in left Wiimote in right, but this can be changed in Holofunk.cs.) You should see a ghostly outline of yourself, with a microphone icon in
+ one hand and a circle in the other. </li><li>Sing or say something into the mike. You should see a red circle throbbing behind the mike, in time with the volume of your voice.
+</li><li>Sing or say something while squeezing the Wiimote trigger. Note the red circle throbbing inside the circle over your Wii hand.
+</li><li>Let go of the trigger. Whoa! Your sound now has a life of its own and will keep looping.
+</li><li>Do it all again. Make a whole bunch of sounds. They will all line up to the tempo of the rainbow background's pulsing.
+</li><li>Hold the &quot;-&quot; (minus) button on the Wiimote. Your circle goes grey. Wave it over the sounds and see them all turn grey -- and silent. Hold the &quot;&#43;&quot; (plus) button -- your circle goes blue and revives all the sounds.
+</li><li>Pushing the minus button over an already-muted sound deletes that one sound altogether.
+</li><li>When you've created some insane chaos that you can't stand, pressing down on the Home button will wipe the slate clean.
+</li><li>The more you record, the more space is taken up. But space is only taken up when actually recording (when the trigger is depressed), and you can do a lot of damage with the amount of space available.
+</li></ul>
+<p>Aaaaand... that's basically it! Holofunk as it stands in late 2011.<br>
+<br>
+</p>
+</div><div class="ClearBoth"></div>
